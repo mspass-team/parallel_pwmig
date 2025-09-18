@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 # temporary to use sys.path
 import sys
-sys.path.append('/home/pavlis/src/parallel_pwmig/cxx/build/python/seispp')
-from seispp import (EventCatalog,Hypocenter,RadialGrid,SectorTest)
+from pwmigpy.ccore.seispp import (EventCatalog,Hypocenter,RadialGrid,SectorTest)
 from mspasspy.ccore.utility import (Metadata,AntelopePf)
 from mspasspy.db.database import Database
 from mspasspy.db.client import Client
