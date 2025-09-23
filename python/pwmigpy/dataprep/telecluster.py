@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# temporary to use sys.path
-import sys
-import argparse
-import json
+"""
+This module implements a C++ algorithm from the older pwmig set to python. 
+The older C++ program was a command line tool used to build a data structure 
+linking sources in an Antelope database into a set of "clusters".  A 
+"cluster" in that context is a set of source located inside a radial sector 
+defined by a range of distances and station-to-event azimuths.   The result 
+was as still is used to drive a source-side stacking algorithm called 
+RFEventStacker.  
+
+This module contains all the functional code of telecluster.   A separate 
+file in the scripts directory implements the CLI tool using command line 
+arguments that make that CLI tool act much like the old C++ code.
+"""
+
 from pwmigpy.ccore.seispp import (EventCatalog,Hypocenter,RadialGrid,SectorTest)
 from mspasspy.ccore.utility import (Metadata,AntelopePf)
 from mspasspy.db.database import Database
@@ -134,6 +144,8 @@ def telecluster(dbname,pfname="telecluster.pf",query={},othermd=[]):
        will be translated and loaded to create associations.)
     :param othermd:  optional list of keys of other md to load with the 
       hypocenter coordinates - these get posted to cluster collection.
+    :return: tuple with two componens.  0 component is size of catalog 
+      processed and 1 is the number of added to cluster collection 
     
     """
     # First make sure the pf file can be read and contains everything 
@@ -149,11 +161,11 @@ def telecluster(dbname,pfname="telecluster.pf",query={},othermd=[]):
     db=Database(dbclient,dbname)
     cluster_collection=db['telecluster']
     evcat=dbload_EventCatalog(db,mdlist=othermd,query=query)
+    ncluster=0
     for i in range(grid.number_azimuth_bins()):
         for j in range(grid.number_distance_bins()):
             tester=SectorTest(grid,i,j)
             catsubset=evcat.sector_subset(tester)
-            #print(i,',',j,' subset size=',catsubset.size())
             nthis=catsubset.size()
             if nthis>0:
                 hypos=cat2dict(catsubset)
@@ -174,75 +186,7 @@ def telecluster(dbname,pfname="telecluster.pf",query={},othermd=[]):
                 for k in celldata:
                     cellsubdoc[k]=celldata[k]
                 doc['gridcell']=cellsubdoc
-                print(doc)
                 cluster_collection.insert_one(doc)
-def main(args=None):
-    if args is None:
-        args = sys.argv[1:]
-    parser = argparse.ArgumentParser(
-        prog = "telecluster",
-        usage="%(prog)s dbname [-pf pffile -q source_query -o keylist]",
-        description="Populate cluster collection for source data",
-    )
-    parser.add_argument(
-        "dbname",
-        metavar="dbname",
-        type=str,
-        help="MongoDB database name containg source collection to be processed",
-    )
-    parser.add_argument(
-        "-pf",
-        "pffile",
-        action="store",
-        type=str,
-        default="Telecluster.pf",
-        help="Set parameter file that sets up clustering geometry ",
-    )
-    parser.add_argument(
-        "-q",
-        "--query",
-        action="store",
-        type=str,
-        default=None,
-        help="Specify optional query (json format) to apply to source collection",
-    )
-    parser.add_argument(
-        "-o",
-        "--otherdata",
-        action="store",
-        type=str,
-        default=None,
-        help="Use with comma separated list of keys for other data to be loaded from source and stored in cluster collection"
-    )
-    args = parser.parse_args(args)
-    # maybe should alter the function to take the mongodb handle not just 
-    # the name.   Only issue is exception handling but for now leave  
-    # as is - if it ain't broken don't fix it
-    dbname = args.dbname
-    # The telecluster functionis implemented to use the pfname not the 
-    # object constructed from it
-    pffile = args.pffile
-    # depend on None as default
-    if args.query is None:
-        query = dict()
-    else:
-        try:
-            query = json.loads(args.query)
-        except json.decoder.JSONDecodeError as e:
-            print("telecluster:  Error in json specification of query operator with -q option")
-            print("string received=",args.query)
-            print("Exception message from json module:")
-            print(e)
-            exit(-1)
-    if args.otherdata is None:
-        otherdata = []
-    else:
-        otherdata = args.otherdata.split(",")
-    # this main function could throw exceptions but we don't try to 
-    # handlle them.  If I (glp) find them too cryptic could put an error 
-    # hander here
-    telecluster(dbname,pfname=pffile,query=query,othermd=otherdata)
-    
-    
-if __name__ == "__main__":
-    main()
+                ncluster += 1
+    return [evcat.size(),ncluster]
+
