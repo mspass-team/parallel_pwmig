@@ -198,7 +198,8 @@ def linear_stack(ens,weight_key=None,undefined_weight=0.0):
             else:
                 sumwt += 1.0
             if result is None:
-                result = d
+                # this needs to be a copy
+                result = Seismogram(d)
             else:
                 result += d
     # handle null result
@@ -429,7 +430,7 @@ def stack_groups(keyed_ensemble,
             case "median":
                 stack,wts = robust_stack_3C(ensemble,
                                         method="median",
-                                        stack0=stack0,
+                                        stack0=None,
                                         stack_md=stack_md,
                                         timespan_method=timespan_method,
                                         pad_fraction_cutoff=pad_fraction_cutoff,
@@ -443,7 +444,7 @@ def stack_groups(keyed_ensemble,
                 # this handles each component independently
                 stack,wts = robust_stack_3C(ensemble,
                                         method="dbxcor",
-                                        stack0=stack0,
+                                        stack0=None,
                                         stack_md=stack_md,
                                         timespan_method=timespan_method,
                                         pad_fraction_cutoff=pad_fraction_cutoff,

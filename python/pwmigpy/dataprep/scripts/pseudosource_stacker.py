@@ -18,10 +18,11 @@ Created on Sun Sep 28 07:23:12 2025
 
 import sys
 import argparse
+import copy
 from bson.objectid import ObjectId
 from mspasspy.db.client import DBClient
 from mspasspy.db.database import Database
-from mspasspy.ccore.utility import AntelopePf
+from mspasspy.ccore.utility import AntelopePf,Metadata
 from mspasspy.ccore.seismic import SeismogramEnsemble
 import pwmigpy.dataprep.binned_stacking as bsm
 
@@ -55,8 +56,10 @@ class bsscontrol():
         # the structure of the pf allows this simple loop to 
         # parse the pf file.
         self.algorithm_list = ["average","weighted_average","median","robust_dbxcor"]
+        # the data w need for this object are on this branch 
+        pfalg = pf.get_branch("stacking_parameters")
         for key in self.algorithm_list:
-            pfb = pf.get_branch(key)
+            pfb = pfalg.get_branch(key)
             useme = pfb["enable"]
             self.enabled[key] = useme
             self.argdoc = pfb.todict()
@@ -136,6 +139,55 @@ def make_dfile_name(clusterdoc)->str:
     dfile = "stackdata_bin_{}_{}".format(azindex,delta_index)
     return dfile
 
+def create_stack_md(keyed_ensembles,stack_mdlist)->Metadata:
+    """
+    The robust_stack function in mspass requires a Metadata container 
+    with content that is copied to the stack it computes.   It requires 
+    that in the use here where there is no initial stack from which it 
+    can clone required Metadata.   
+    
+    For robustness this algorithm will scan the entire dataset, if 
+    necessary to fetch a value for keys in the stack_mdlist argument.   
+    That is a bit overkill as in most cases the first live datum 
+    should have the required data if the keys are defined correctly.  
+    A corollary is if a key is not unique what will be set is the first 
+    one found in keyed_ensembles
+    
+    :param ensemble:  dictionary of ensemble values defining the data to 
+      be stacked.  Output of load_and_sort or equivalent.  That is, it is 
+      assumed to be a dicationary with SeismogramEnsemles as the values 
+      associated with each key.  The algorithms over each esnemble and 
+      inside the members of each ensemble until it finds a value for each 
+      key in stack_mdlist.  Caution that this will be expensive for a large 
+      dataset if a key in stack_mdlist is not defined for any datum in 
+      the entire data set.  
+    :param stack_mdlist:  list of strings defining keys to be extracted 
+      and copied to output.
+    :return:  Metadata contaienr with copys of attributes defined b 
+      stack_mdlist.   Note if a key is not found in any member it will 
+      be silently absent from the output.  If that is a problem caller 
+      should compare len(stack_mdlist) and len(result.keys) for 
+      equality and use an error handler if that is an issue.
+    
+    """
+    keys_still_to_copy=copy.deepcopy(stack_mdlist)
+    md = Metadata()
+    for ekey in keyed_ensembles:
+        ensemble = keyed_ensembles[ekey]
+        for i in range(len(ensemble.member)):
+            if ensemble.member[i].live:
+                # this is necessary because we pop keys when they are found
+                current_list = copy.deepcopy(keys_still_to_copy)
+                for key in current_list:
+                    if key in ensemble.member[i]:
+                        md[key] = ensemble.member[i][key]
+                        keys_still_to_copy.pop(key)
+                if len(keys_still_to_copy) == 0:
+                    return md
+    return md
+            
+    
+
 def main(args=None):
     if args is None:
         args = sys.argv[1:]
@@ -183,6 +235,7 @@ def main(args=None):
     pffile = args.pffile
     pf = AntelopePf(pffile)
     control = bsscontrol(pf)
+    stack_mdlist = pf.gettbl("stack_mdlist")
     # outer loop over groupings defined by telecluster
     # currently read all - TODO:  add optional query of telecluster collction
     # note this could be parallelized over this outer loop
@@ -205,9 +258,10 @@ def main(args=None):
                                         undefined_weight=argdoc["undefined_weight"],
                                         )
                     case "median":
+                        md_to_clone = create_stack_md(dataset, stack_mdlist)
                         stacked_data = bsm.stack_groups(dataset,
                                         method=algorithm,
-                                        stack_md=argdoc["stack_md"],
+                                        stack_md=md_to_clone,
                                         timespan_method=argdoc["timespan_method"],
                                         pad_fracton_cutoff=argdoc["pad_fraction_cutoff"],
                                         )
@@ -215,9 +269,10 @@ def main(args=None):
                         # note for now we always default stack0 to None which 
                         # caused a median stack to be used as the initial 
                         # estimator
+                        md_to_clone = create_stack_md(dataset, stack_mdlist)
                         stacked_data = bsm.stack_groups(dataset,
                                         method=algorithm,
-                                        stack_md=argdoc["stack_md"],
+                                        stack_md=md_to_clone,
                                         timespan_method=argdoc["timespan_method"],
                                         pad_fracton_cutoff=argdoc["pad_fraction_cutoff"],
                                         residual_norm_floor=argdoc["residual_norm_floor"],
