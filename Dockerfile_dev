@@ -1,4 +1,4 @@
-FROM ghcr.io/mspass-team/mspass:dev
+FROM ghcr.io/mspass-team/mspass:latest
 
 LABEL maintainer="Ian Wang <yinzhi.wang.cug@gmail.com>"
 
