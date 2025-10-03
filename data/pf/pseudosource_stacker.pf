@@ -1,0 +1,33 @@
+stacking_parameters &Arr{
+    average &Arr{
+        enable true
+    }
+    weighted_stack &Arr{
+        enable false 
+        weight_key weight
+        undefined_value 1.0
+    }
+    median &Arr{
+        enable true
+        timespan_method ensemble_inner
+        pad_fraction_cutoff 0.05
+    }
+    robust_dbxor &Arr{
+        enable true
+        timespan_method ensemble_inner
+        pad_fraction_cutoff 0.05
+        residual_norm_floor 0.01
+    }
+}
+# this is list of Metadata attributes to be copied to stack for robust methods
+# They are used to construct the stack_md object required by robust_stack 
+# when an initial stack is not defined.  These data are ignored for 
+# linear stacks
+stack_mdlist &Tbl{
+site_id
+npts
+starttime
+endtime
+}
+
+
