@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.4)
+cmake_minimum_required (VERSION 3.11)
 
 project (parallel_pwmig Fortran C CXX)
 
@@ -25,7 +25,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   message (STATUS "Enabled Coverage")
 endif ()
 
-find_package (Boost 1.64.0 COMPONENTS serialization)
+find_package (Boost 1.74.0 COMPONENTS serialization)
 if (NOT Boost_FOUND)
   message (STATUS "Building Boost")
   include (cmake/boost.cmake)

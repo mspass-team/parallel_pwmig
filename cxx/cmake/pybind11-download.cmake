@@ -10,9 +10,8 @@ ExternalProject_Add(
   GIT_REPOSITORY
     https://github.com/pybind/pybind11.git
   GIT_TAG
-    v2.6.0
-  UPDATE_COMMAND bash -c "pip3 show pytest || pip3 install --user pytest"
-  CONFIGURE_COMMAND cmake -DCMAKE_INSTALL_PREFIX=${PROJECT_BINARY_DIR} -DPYBIND11_TEST=OFF .
+    v2.10.1
+  CONFIGURE_COMMAND cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.11 -DCMAKE_INSTALL_PREFIX=${PROJECT_BINARY_DIR} -DPYBIND11_TEST=OFF .
   BUILD_COMMAND make -j 8
   BUILD_IN_SOURCE 1
   INSTALL_COMMAND make install 
