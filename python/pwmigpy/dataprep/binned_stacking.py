@@ -165,16 +165,21 @@ def load_and_sort(db,
                 if sort_key in d:
                     this_key=d[sort_key]
                     if this_key in sorted_data:
-                        sorted_data[this_key].append(d)
+                        sorted_data[this_key].member.append(d)
                     else:
-                        sorted_data[this_key] = [d]
+                        e = SeismogramEnsemble()
+                        # we can't get here if sort_key is not defined
+                        e[sort_key] = d[sort_key]
+                        e.member.append(d)
+                        e.set_live()
+                        sorted_data[this_key] = e
+                        
                 else:
                     message = "sort_key={} not found for this datum so processing by this algorithm failed".format(sort_key)
                     d.elog.log_error(prog,message,ErrorSeverity.Invalid)
                     d.kill()
                     stedronsky.bury(d)
     return sorted_data
-
 
 def linear_stack(ens,weight_key=None,undefined_weight=0.0):
     """
