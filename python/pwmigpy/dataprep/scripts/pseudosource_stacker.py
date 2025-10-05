@@ -50,7 +50,7 @@ class bsscontrol():
         # enabled has boolean values defining if an algorithm is to be run
         # for each True algorithm we load argdoc.  Note there will be no 
         # no data in argdoc when the corresonding enabled entry is False
-        self.enabled = dict()
+        self.alg_enabled = dict()
         self.argdoc = dict()
         
         # the structure of the pf allows this simple loop to 
@@ -61,8 +61,8 @@ class bsscontrol():
         for key in self.algorithm_list:
             pfb = pfalg.get_branch(key)
             useme = pfb["enable"]
-            self.enabled[key] = useme
-            self.argdoc = pfb.todict()
+            self.alg_enabled[key] = useme
+            self.argdoc[key] = pfb.todict()
         
         #TODO:  may want some sanity checks on values here
     def enabled(self,algorithm)->bool:
@@ -72,10 +72,10 @@ class bsscontrol():
         will raise a ValueError exception
         """
         if algorithm in self.algorithm_list:
-            return self.enabled[algorithm]
+            return self.alg_enabled[algorithm]
         else:
-            message = "bscontrol.enabled:  do not grok algorithm={}\n",format(algorithm)
-            message += "Must be one of: {}".format(self.algorithm_list)
+            message="bscontrol.enabled:  do not grok algorithm={}\n".format(algorithm)
+            message += "Must be one of: {}".format(str(self.algorithm_list))
             raise ValueError(message)
     def getargs(self,algorithm)->dict:
         """`
@@ -87,8 +87,8 @@ class bsscontrol():
         if algorithm in self.algorithm_list:
             return self.argdoc[algorithm]
         else:
-            message = "bscontrol.getarg:  do not grok algorithm={}\n",format(algorithm)
-            message += "Must be one of: {}".format(self.algorithm_list)
+            message = "bscontrol.getarg:  do not grok algorithm={}\n".format(algorithm)
+            message += "Must be one of: {}".format(str(self.algorithm_list))
             raise ValueError(message)
         
 def parse_telecluster_source_ids(doc)->list:
