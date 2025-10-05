@@ -183,13 +183,46 @@ def load_and_sort(db,
 
 def linear_stack(ens,weight_key=None,undefined_weight=0.0):
     """
-    Linear stack means simple summation averaging.  optional weighting using 
-    weight_key value extracted from Metadaa of each member
+    Generic linear stacking function to vertically average all members of 
+    an ensemble. 
     
+    Simple averaging is the norm for seismic reflection data.   This
+    function can be used to compute any "linear stack" which means an 
+    average computed as a linear combination of all the "member" objects
+    of an input ensemble (arg0 with name ens). By default that means 
+    a simple average where all components are added with no weighting 
+    (a vector mean).   If `weight_key` is defined a weighted sum is 
+    computed with the weights extracted from the Metadata container of 
+    each member using a specified key passed through the `weight_key` 
+    value.   When that mode is enabled the value of `undefined_weight` 
+    is used for any member with tha requred key missing.   
+    
+    Note the sums are all computed from the member data doing the 
+    operator += of the C++ Seismogram object.   The way that handles 
+    timing is important.   The first live member sets the value of t0 
+    for the stack.  Members added are time time shifted before stacking.  
+    That means the algorithm implicitly assumed the data are already in 
+    relative time and t0 of all members is approximately the same 
+    (i.e. with a couple of samples).
+    
+    The returned stack is a Seismogram object normalized by 1/N for 
+    no weights and 1/sum(wts) for a weighted stack.
+    
+    :param ens:   ensemble to be stacked
+    :type ens:  Must be a SeismogramEnsemble or the function will abort
+    :param weight_key:  if set function will attempt to extract the 
+      weight value for that datum from the datum's Metadata container 
+      using this key.  If it is not set (i.e None - the default) the 
+      algorithm does no weighting.  
+    :typ weight_key:   str or None (default)
+    :param undefined_weight:  weight used if `weight_key` is set but the 
+       that key has no value set in a datum's Metadata container.  
+    :type undefined_weight:  float (default 0.0)
+    :return:   Seismogram object containing the stack
     """
     sumwt = 0.0
     result=None
-    for i in len(ens.member):
+    for i in range(len(ens.member)):
         d = ens.member[i]
         if d.live:
             if weight_key:
@@ -219,9 +252,10 @@ def linear_stack(ens,weight_key=None,undefined_weight=0.0):
             # this exception should never be thrown as above will 
             # abort before this but this is a safetyy value
             raise ValueError("linear_stack:  received invalid data for arg0")
-    result.data /= sumwt
-    return result
-            
+    # /= is currently not defined but *= is so we have to compute this as a multiplier
+    normalizer=1.0/sumwt
+    result.data *= normalizer
+    return result            
                 
 def magnitude_power_weight(d,
                       key="magnitude",
@@ -464,8 +498,11 @@ def stack_groups(keyed_ensemble,
         # append output even if it is marked dead
         stack["stack_sort_key_value"] = ekey
         stacked_data.member.append(stack)
-    if number_live(stacked_data)>0:
-        stacked_data.set_live()
+    # this has to be called first or number_live will always return 0 
+    # it doesn't test memers if the ensemble is marked dead
+    stacked_data.set_live()
+    if number_live(stacked_data)==0:
+        stacked_data.kill()
     return stacked_data
     
         
