@@ -17,7 +17,11 @@ Created on Wed Sep 24 07:30:05 2025
 @author: pavlis
 """
 
+import numpy as np
+import copy
 from mspasspy.util.Undertaker import Undertaker
+from mspasspy.util.seismic import number_live
+from mspasspy.util.Janitor import Janitor
 from mspasspy.ccore.utility import ErrorSeverity,Metadata
 from mspasspy.ccore.seismic import (SeismogramEnsemble,
                                     TimeSeries,
@@ -26,7 +30,6 @@ from mspasspy.ccore.seismic import (SeismogramEnsemble,
 
 from mspasspy.algorithms.basic import ExtractComponent
 from mspasspy.algorithms.MCXcorStacking import robust_stack
-from mspasspy.util.seismic import number_live
 
 def load_and_sort(db,
                   key_or_query_list,
@@ -257,57 +260,6 @@ def linear_stack(ens,weight_key=None,undefined_weight=0.0):
     result.data *= normalizer
     return result            
                 
-def magnitude_power_weight(d,
-                      key="magnitude",
-                      scale=3.0,
-                      power=3.0,
-                      default=10.0,
-                      ceiling=100.0,
-                      origin=4.0,
-                      )->float:
-    """
-    Returns magnitude-dependent weight.  
-    
-    All single station receiver function estimates in MsPASS are 
-    normalized to have amplitudes independent of magnitude.  Increasing 
-    magntidue, however, by definition implies larger ampitudes which 
-    translates to more conficence in teh estimates for larger 
-    magnitudes.  This function can be used tioimplement q weighting 
-    scheme to increase teh weight of larger magnitude events.  
-    
-    This implementation support only an experimental power law weight function that 
-    depends on magnitude extracted from the Metadata conainer of d.  
-    The formula is:
-        weight = [scale*(magnitude - origin)]^power
-    The maximum allowed weight is defined by the `ceiling` argument. 
-    That is, for large magnitude events when the computed weight exceeds 
-    the ceiling the return will be the ceiling value.   Note
-    variations in power, scale, origin, and celing can be used to 
-    produce flat weights for large magnitudes with power law 
-    taper passing through 1.0 at origin.  On the other extreme, 
-    setting power to 10.0, scale=1.0, and ceiling=large value creates an approximate 
-    true amplitude normalization if the data are standard receiver 
-    functions that have normalized amplitudes that are independet of 
-    magnitudes.  A range of cutoff behavior and form can be achieved
-    by varying the scale, ceiling and power values.   I recommend 
-    creating a graphic of the weights this will use as a function of 
-    magnitude if you use anything but the default.  
-    
-    The function depends on a magntidue estimate being set in the 
-    Metadaa container of d.  For data with a mix of magnitude estimaes 
-    with different keys caller will need program logic to handle the 
-    variations.   Teh default is a generic "magnitude" key which is 
-    the norm for data from FDSN retrieved with quakeML.  
-    """
-    if d.dead() or key not in d:
-        return default
-    mag = d[key]
-    dm = mag - origin
-    wt = pow(scale*dm,power)
-    if wt>ceiling:
-        wt = ceiling
-    return wt
-
 def robust_stack_3C(ensemble,
                     method="dbxcor",
                     stack0=None,
@@ -505,7 +457,425 @@ def stack_groups(keyed_ensemble,
         stacked_data.kill()
     return stacked_data
     
-        
+
+def set_ensemble_weights(ensemble,
+                    metric_to_use="snr_H",
+                    snr_subdoc_key="snr_RF",
+                    ceiling_level=300.0,
+                    floor_level=3.0,
+                    power=2.0,
+                    raw_weight_key="RF_snr_wt",
+                    Null_weight_value=1.0,
+                    )->SeismogramEnsemble:
+    """
+    Scan ensemble for values of a signal-to-noise ratio and convert 
+    them to a weight.   Result is stored in the Metadata container 
+    of each member with the key defined by `rms_weight_key`.  
     
+    Signal-to-noise ratio estimates are a basic tool for signal processing 
+    based methods to grade data by quality.   For any seismic processing 
+    algorithm handling transient signals (i.e. signals generated 
+    by an earthquake or explosion) snr is a way to a first-order way 
+    to judge the quality of what you are trying to analyze.  What metric 
+    to use, however, is dependent on the nature of the analysis being 
+    underaken.   e.g. peak amplitude relative to background noise is 
+    a critical metric if one is estimating standard magnitude estimators 
+    based on peak amplitude.   Other algorithms have a more elaboate 
+    metric.  The default for this algorithm is a case in point.  The 
+    default uses a special metric for receiver function estimates 
+    where the estimate is the amplitude of the direct P signal at 0 lag 
+    on the horizontal components relative to filered background noise.  
     
+    TODO:   modify existing algorithm to use noise snr 
+    before decon applied - know now that conventional decon distorts 
+    peevent noise.   That, at least, should be an option.   The 
+    algorithm involved is not yet in the distributin anyway.
+    
+    The weight assigned to a datum is controlled by two parameters 
+    to the function:  ceiling level and floor_level.  The actual 
+    weighting is a simple scheme:
+        if snr<floor_level:
+            weight=0
+        elif snr>ceiling_level:
+            weight=1.0
+        else:
+            weight = (snr/ceiling_level)^power
+            
+    Note power isn't alloed to be negative or low snr data will receive 
+    larger weights than 1.0
+    
+    If no datum in the ensemble has the key requested set the 
+    value of raw_weight_key will be set to the value defined by 
+    null_weight_value.
+    """
+    if power<0:
+        message = "snr_ensemble_weights:   illegal value power={}.  Must be positive".format(power)
+        raise ValueError(message)
+    N=len(ensemble.member)
+    snrdata=np.zeros(N)
+    for i in range(N):
+        d = ensemble.member[i]
+        if d.live:
+            if snr_subdoc_key in d:
+                subdoc = d[snr_subdoc_key]
+                if metric_to_use in subdoc:
+                    snrdata[i] = d[metric_to_use]
+    if len(snrdata)>0:
+        for i in range(N):
+            if ensemble.member[i].live:
+                # depends on zeros initialization of snrdata to properly 
+                # handle data with missing snr estimate
+                if snrdata[i]<floor_level:
+                    ensemble.member[i][raw_weight_key] = 0.0
+                elif snrdata[i] > ceiling_level:
+                    ensemble.member[i][raw_weight_key] = 1.0
+                else:
+                    ensemble.member[i][raw_weight_key] = snrdata[i]/ceiling_level
+    else:
+        message = "set_raw_weight:  no live datum had key={}.{} set\n".format(snr_subdoc_key,metric_to_use)
+        message = "Setting key={} for all ensemble members to {}".format(raw_weight_key,Null_weight_value)
+        ensemble.elog.log_error(message,ErrorSeverity.Complaint)
+        for d in ensemble.member:
+            if d.live:
+                d[raw_weight_key] = Null_weight_value
+    return ensemble
+    
+def compute_summary_weight(d,keylist,method=["minimum"])->tuple:
+    """
+    Compute a composite weight value from multiple estimates.
+    
+    There are multiple ways data can prove questionable but not worthless. 
+    A generic solution for averaging data with variable quality is linear sums 
+    with weights.   There are two ways I can think of to merge result 
+    with different weighting schemes.  One can (a) average multiple 
+    weighted average estiamtes with possible weighting of each component 
+    summed or (b) use a composite weight creating by considering the 
+    weights assigned to each datum and then computing a final estiamte 
+    using a simple weighted sum of the composite weights.   This function 
+    can be used for the later approach.  
+    
+    The function tries to extract multiple weight estimates from 
+    the Metadata container of arg0 using a list of keys supplied
+    through the `keylist` (required arg1) argument. 
+    The way the weights are merged is defined by the `method` argument. 
+    Currently accepted values are:
+          minimum - use the minimum value 
+          maximum - use the maximum value
+          median - ues the median value
+          logmean - use the mean logarithmic value converted back linear scaling.
+          
+    This function tries to handle and recover from some situations 
+    and still inform the caller something is not ideal. It does that by 
+    returning not just the computed weight as component 0 of the returned 
+    tuple but it returns an error code in component 1.  If the error code 
+    returned as component 1 is not zero it means one of two thing happened:
+        1.  A key in keylist had no value associated with it.
+        2.  The weight returned for a key was not valid.  A weight to this 
+            function must be a value between 1.0 and 0.0 inclusive.
+    Callers should test the condition that the error count returned in 
+    as component 1 of the returned tuple == len(keylist).  In that case 
+    the weight returned as component 0 will also be zero.   
+    
+    :param d:  Datum to be processed.   Assumed to contain key-value pairs 
+      to be extracted using keylist set of keys.
+    :type d:  any data object that allows fetching attributes with a key 
+      like in the same way as a python dictionary.  That means any object
+      that inherits Metadata but can also mean a document (dictionary) 
+      extracted from a MongoDB database.  The later is important as a 
+      workflow can run as a pure database process calling this function 
+      in a cursor loop and then doing an update with the return of the 
+      original document.  
+    :param keylist:   list of keys to use to form the composite weight.
+    :type keylist:  list of str values to use as keys
+    :param method:   algorithm to use to merge the list of weights 
+      extracted using keys in keylist.
+    :type method:  str that must ve one of the following  "minimum" (default), 
+      "maximum","median", or "logmean".  See above
+    
+    """
+    if len(keylist)<2:
+        message = "compute_summary_weight:  illegal input for arg1 (keylist)\n"
+        message = "Must be a list of Metadata keys with length > 1.  Received a list of length={}".format(len(keylist))
+    if d.dead():
+        return [0.0,0]
+    wtlist=list()
+    error_count=0
+    for key in keylist:
+        if key in d:
+            dwt = d[key]
+            if dwt<=1.0 and dwt>=0.0:
+                wtlist.append(dwt)
+            else:
+                error_count += 1
+        else:
+            error_count += 1
+    if len(wtlist)==0:
+        return [0.0,error_count]
+    match method:
+        case "minimum":
+            wt = np.min(wtlist)
+        case "maximum":
+            wt = np.max(wtlist)
+        case "median":
+            wt = np.median(wtlist)
+        case "logmean":
+            lnw = np.log(wtlist)
+            x = np.average(lnw)
+            # log is natural log so return e to x power
+            wt = np.exp(x)
+        case _:
+            message = "compute_summary_weight:   illegal value for method={}\n".format(method)
+            message += "Must be one of: minimum, maximum, median, or logmean"
+            raise ValueError(message)
+    return [wt,error_count]
+
+def build_stackmd(ensemble,janitor=None)->Metadata:
+    """
+    Extract Metadata from first life ensemble member and optionally clean it.
+    
+    The median stacking algorithm requires at least a skeleton Metadata 
+    container to build the Seismogram object it computes.   This 
+    function can be used to generate this requirement from the input 
+    being passed to the algorithm before the robust_stack function is 
+    called.   If a Janitor object is defined via the `janitor` argument 
+    the clean method of that object will be called before it is returned.
+    """
+    if ensemble.dead():
+        print("build_stackmd (WARNING):   received an emsemble marked dead")
+        print("Returning a default constructed Metadata container")
+        print("This is likely to cause downstream problems")
+        print("Alter calling script to avoid this condition")
+        return Metadata()
+    if janitor is not None: 
+        if isinstance(janitor,Janitor):
+            run_janitor=True
+        else:
+            message = "This is an error message"
+            raise ValueError(message)
+    else:
+        run_janitor=False
+    # clone the Metadata of the first live member of ensemble
+    for d in ensemble.member:
+        if d.live:
+            stackmd = Metadata(d)
+            break
+    if run_janitor:
+        janitor.clean(stackmd)
+    return stackmd
+
+def get_subdoc_value(doc,key,separator="."):
+    """
+    Get a value from a dictionary like object contained in a suddocument.
+    
+    MongoDB support the concept of a subdocument.  To python a subdocument is 
+    a dictionary where the value attached to a key is itself a dictinary.  
+    MongoDB allows queries on subdocument values with composite keys of the 
+    form "base_doc_key.subdoc_key"  (e.g. "Parrival.time")  This small 
+    function allows extracting values from a document using such a 
+    composite key.  For the example above you could extract a previously 
+    computed and stored P arrival time using:
+        Ptime = get_subdoc_value("Parrival.time")
+    Noting that if the same key were used with the [] operator of python 
+    it would fail.   
+
+    
+    :param doc:   document containing the data key references
+    :type doc:  dictionary like conainer.  That includes mspasspy Metadata 
+       and all MsPASS seismic objects that inherit Metadata.
+    :param key:  composite key describing path to data requested. 
+       (e.g.  "RF_snr.snr_H")
+    :type key:   str
+    :param separator:  optional separator string used to define composite 
+      keys.   The content of this string is used as to define how the 
+      split method of str is applied to separate key into tokens.   The 
+      default is "." as used by MongoDB.  
+    :type separator:  str (default ".")
+    :return: object referenced by key - can be any object that can be stored 
+       in the doc container. 
+    """
+    token = key.split(separator)
+    N_last = len(token) - 1
+    last_doc = copy.deepcopy(doc)
+    for i in range(len(token)):
+        if i < N_last:
+            if token[i] in last_doc:
+                subdoc = last_doc[token[i]]
+                last_doc = subdoc
+            else:
+                message = "get_subdoc_value:  subdocument for key {} at level {} created from composite key {} was not found in document being processed".format(token[i],i,key)
+                raise KeyError(message)
+        else:
+            if token[i] in last_doc:
+                value_found = last_doc[token[i]]
+            else:
+                message = "get_subdoc_value:  subdocument key={} of composite key {} was not found in this document".format(token[i],key)
+                raise KeyError(message)
+    return value_found
+
+def subdoc_key_is_defined(doc,key,separator=".")->bool:
+    """
+    Companion to above to use to test if a compound key exists.   
+    Needed for equivalent of common dictinary test "if key in doc".
+    
+    :param doc:  document (dictinary/Metadata) to be checked.
+    :param key:  key to validate
+    :param separator:  component key separator (normally ".")
+    
+    :return:  True if key is found, False otherwise.
+    """
+    token = key.split(separator)
+    N_last = len(token) - 1
+    last_doc = copy.deepcopy(doc)
+    for i in range(len(token)):
+        if i < N_last:
+            if token[i] in last_doc:
+                subdoc = last_doc[token[i]]
+                last_doc = subdoc
+            else:
+                return False
+        else:
+            if token[i] in last_doc:
+                return True
+            else:
+                return False
+    
+
+def power_law_weight(x,x_lower,x_upper,w_lower,w_upper=1.0,x_is_log=False)->float:
+    """
+    Compute a power law weight function defined by a lower and upper bound.
+
+    This is a low-level function used by wrappers in pwmig to create two weight
+    functions that match the concept:  snr weights and source-dependent magnitude
+    weights.   The weight function defines a floor value for small values
+    defined by the w_lower value.  When x<=x_lower the weight is constant at
+    a value of w_lower.   When x>=x_upper the weight returned is w_upper.
+    When x_lower<x<x_upper the weight returned is a power law fit between the
+    upper and lower bound points.  The exponent of the power law to make that fit
+    is computed in each call to the function.
+
+    :param x:  value of independent variable for which a weight is to be computed.
+    :param x_lower:  x value of lower bound (see above)
+    :param x_upper:  x value of upper bound (see above)
+    :param w_lower:  weight returned for small values where x<x_lower.
+    :param w_upper:  weight returned for large values where x>x_upper (default 1.0)
+    :param x_is_log:   if True the values of x are assumed to be log10 values like
+      earthquake magnitude.
+    """
+    if x<=x_lower:
+        return w_lower
+    elif x>=x_upper:
+        return w_upper
+    if x_is_log:
+        lxlower=x_lower
+        lxupper=x_upper
+        lx = x
+    else:
+        lxlower=np.log10(x_lower)
+        lxupper=np.log10(x_upper)
+        lx = np.log10(x)
+    lwlower=np.log10(w_lower)
+    lwupper=np.log10(w_upper)
+    slope = (lwupper-lwlower)/(lxupper-lxlower)
+    dlx = lx - lxlower
+    lw = lwlower + dlx*slope
+    return np.pow(10.0,lw)
+
+def magnitude_weight(m,
+                     full_weight_magnitude=6.0,
+                     floor_magnitude=4.0,
+                     minimum_weight=0.01,
+                    ):
+    """
+    Return a weight function with 
+      w = minimum_weight if m>=floor_magnitude
+      w = 1.0 if m>=full_weight_magnitude
+      w = power law fit between upper and lower bounds.  
+    """
+    w = power_law_weight(m,
+                         floor_magnitude,
+                         full_weight_magnitude,
+                         minimum_weight,
+                         x_is_log=True,
+                        )
+    return w
+
+def snr_weight(snr,
+               snr_floor=10.0,
+               weight_floor=0.01,
+               full_weight_snr=500.0,
+              ):
+    """
+    Compute a power law weighting function based on a snr estimate.  
+
+    This function is thin wrapper on the power_law_weight function
+    with defaults appropriate for signal-to-noise estimates. 
+    """
+    w = power_law_weight(snr,snr_floor,full_weight_snr,weight_floor)
+    return w
+
+def set_snr_weights(ensemble,
+                    snr_metric_key,
+                    weight_key,
+                    snr_floor=10.0,
+                    weight_floor=0.01,
+                    full_weight_snr=500.0,
+                    )->SeismogramEnsemble:
+    """
+    Scan ensemble for values of a signal-to-noise ratio and convert 
+    them to a weight.   Result is stored in the Metadata container 
+    of each member with the key defined by `weight_key`.    
+    
+    Signal-to-noise ratio estimates are a basic tool for signal processing 
+    based methods to grade data by quality.   For any seismic processing 
+    algorithm handling transient signals (i.e. signals generated 
+    by an earthquake or explosion) snr is a way to a first-order way 
+    to judge the quality of what you are trying to analyze.  What metric 
+    to use, however, is dependent on the nature of the analysis being 
+    underaken.   e.g. peak amplitude relative to background noise is 
+    a critical metric if one is estimating standard magnitude estimators 
+    based on peak amplitude.   Other algorithms have a more elaboate 
+    metric.  There is a long list of measures created by the 
+    MsPASS function broadband_snr_QC that can be used with this function, 
+    
+    This function handles a complication of packaging of snr values.  
+    To manage the namespace MsPASS uses subdocuments to post snr estimates 
+    with different algorithms.  For that reason this functin supports 
+    using compound keys to find the snr value to be converted to a 
+    weight.  e.g. the recommended choice for snr estimated by 
+    CNRRFDecon is "snr_RF.snr_H" where"snr_RF" is a suddocument key 
+    and "snr_H" is the key for the dictionary that defines is 
+    loaded using "snr_RF"   
+    
+    The weight set is computed by the generic power lay weighting 
+    function, `power_law_weight` defined in this module.   See the 
+    docstring for that function and documentation for the functional 
+    for of this weighting method.  
+    
+    Note live datum with the specified key missing will be left unaltered.
+    
+    :param ensemble:   SeismogramEnsemble to be processed.  
+    :param snr_metric_key:  key of snr value to be extracted.  Can be a 
+      simple key or a compound key with a "." separator.   
+    :param weight_key:   key to use to store the computed weight in each 
+      ensemble member's Metadata container
+    :param snr_floor:   snr values smaller than this value will have 
+      weight set to value of weight_floor.  (default 0.01)
+    :param weight_floor:   companion to snr_floor.  snr values smaller than 
+      snr_floor will have the weight value set to this number 
+      (default 0.01).
+    :param full_weight_snr:  snr values larger than this value will have 
+      the weight set to 1.0.   
+    """
+    if ensemble.dead():
+        return ensemble
+    for d in ensemble.member:
+        if d.live:
+            if subdoc_key_is_defined(d,snr_metric_key):
+                snr = get_subdoc_value(d, snr_metric_key)
+                w = snr_weight(snr,snr_floor=snr_floor,
+                           weight_floor=weight_floor,
+                           full_weight_snr=full_weight_snr,
+                           )
+                d[weight_key] = w
+    return ensemble
 
