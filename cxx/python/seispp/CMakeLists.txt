@@ -14,7 +14,6 @@ pybind11_add_module(pyseispp seispp_py.cc)
 target_link_libraries(pyseispp PRIVATE pwmig 
   $ENV{MSPASS_HOME}/lib/libmspass.a 
   ${Boost_LIBRARIES})
-target_include_directories(pwmig PRIVATE ${Boost_INCLUDE_DIRS})
 
 set_target_properties(pyseispp PROPERTIES OUTPUT_NAME "seispp")
 if(DEFINED CMAKE_LIBRARY_OUTPUT_DIRECTORY)

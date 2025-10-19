@@ -147,15 +147,18 @@ elseif (NOT LAPACK_FOUND)
 endif ()
 
 find_package(OpenMP)
-
+message(STATUS "Trying FortranCInterface")
 include (FortranCInterface)
+message(STATUS "Section 2 of FCI")
 list (APPEND FORTRAN_FUNCTIONS ddot dscal daxpy dcopy dnrm2)
 list (APPEND FORTRAN_FUNCTIONS dgetrf dgetri)
 list (APPEND FORTRAN_FUNCTIONS dlamch dstebz dstein)
+message(STATUS "Section 3 of FCI")
 FortranCInterface_HEADER (include/FC.h
   MACRO_NAMESPACE "FC_"
   SYMBOLS ${FORTRAN_FUNCTIONS}
   )
+message(STATUS "Finished FCI")
 
 # Set up mspass for now with this environment variable
 if (DEFINED ENV{MSPASS_HOME})
