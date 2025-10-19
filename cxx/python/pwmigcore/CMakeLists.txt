@@ -9,11 +9,13 @@ include_directories(
   ${PROJECT_BINARY_DIR}/include)
 
 
-pybind11_add_module(pypwmigcore pwmigcore_py.cc)
+#pybind11_add_module(pypwmigcore pwmigcore_py.cc)
+Python_add_library(pypwmigcore pwmigcore_py.cc)
 
 target_link_libraries(pypwmigcore PRIVATE pwmig 
   $ENV{MSPASS_HOME}/lib/libmspass.a 
-  ${Boost_LIBRARIES})
+  ${Boost_LIBRARIES}
+  pybind11::headers)
 set_target_properties(pypwmigcore PROPERTIES OUTPUT_NAME "pwmigcore")
 if(DEFINED CMAKE_LIBRARY_OUTPUT_DIRECTORY)
   set_target_properties(pypwmigcore PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/ccore)

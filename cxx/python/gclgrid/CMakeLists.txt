@@ -9,11 +9,13 @@ include_directories(
   ${PROJECT_BINARY_DIR}/include)
 
 
-pybind11_add_module(pygclgrid gclgrid_py.cc)
+#pybind11_add_module(pygclgrid gclgrid_py.cc)
+Python_add_library(pygclgrid gclgrid_py.cc)
 
 target_link_libraries(pygclgrid PRIVATE pwmig 
   $ENV{MSPASS_HOME}/lib/libmspass.a 
-  ${Boost_LIBRARIES})
+  ${Boost_LIBRARIES}
+  pybind11::headers)
 set_target_properties(pygclgrid PROPERTIES OUTPUT_NAME "gclgrid")
 if(DEFINED CMAKE_LIBRARY_OUTPUT_DIRECTORY)
   set_target_properties(pygclgrid PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/ccore)
