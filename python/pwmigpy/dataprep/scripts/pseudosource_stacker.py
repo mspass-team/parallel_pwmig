@@ -24,6 +24,7 @@ from mspasspy.db.client import DBClient
 from mspasspy.db.database import Database
 from mspasspy.ccore.utility import AntelopePf,Metadata
 from mspasspy.ccore.seismic import SeismogramEnsemble
+from mspasspy.util.Janitor import Janitor
 import pwmigpy.dataprep.binned_stacking as bsm
 
 class bsscontrol():
@@ -235,7 +236,10 @@ def main(args=None):
     pffile = args.pffile
     pf = AntelopePf(pffile)
     control = bsscontrol(pf)
-    stack_mdlist = pf.gettbl("stack_mdlist")
+    janitor=Janitor()
+    auxmdkeys = pf.gettbl("stack_add2keepers_list")
+    for key in auxmdkeys:
+        janitor.add2keepers(key)
     # outer loop over groupings defined by telecluster
     # currently read all - TODO:  add optional query of telecluster collction
     # note this could be parallelized over this outer loop
@@ -258,21 +262,16 @@ def main(args=None):
                                         undefined_weight=argdoc["undefined_weight"],
                                         )
                     case "median":
-                        md_to_clone = create_stack_md(dataset, stack_mdlist)
                         stacked_data = bsm.stack_groups(dataset,
                                         method=algorithm,
-                                        stack_md=md_to_clone,
+                                        janitor=janitor,
                                         timespan_method=argdoc["timespan_method"],
                                         pad_fracton_cutoff=argdoc["pad_fraction_cutoff"],
                                         )
                     case "robust_dbxcor":
-                        # note for now we always default stack0 to None which 
-                        # caused a median stack to be used as the initial 
-                        # estimator
-                        md_to_clone = create_stack_md(dataset, stack_mdlist)
                         stacked_data = bsm.stack_groups(dataset,
                                         method=algorithm,
-                                        stack_md=md_to_clone,
+                                        janitor=janitor,
                                         timespan_method=argdoc["timespan_method"],
                                         pad_fracton_cutoff=argdoc["pad_fraction_cutoff"],
                                         residual_norm_floor=argdoc["residual_norm_floor"],
@@ -283,6 +282,11 @@ def main(args=None):
                                                          argdoc,
                                                          clusterdoc,
                                                              )
+                    # this is loaded from the telecluster collection but 
+                    # we change the key name here.  Cleare this way than 
+                    # if it had been pushed to the load_special_attributes
+                    # function.
+                    stacked_data["telecluster_events"] = source_id_list
                     dfile=make_dfile_name(clusterdoc)
                     db.save_data(stacked_data,
                                  collection="wf_Seismogram",

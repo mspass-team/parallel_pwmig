@@ -317,10 +317,9 @@ def robust_stack_3C(ensemble,
     
 def stack_groups(keyed_ensemble,
                  method="median",
-                 weight_key=None,
+                 weight_key="composite_weight",
                  undefined_weight=0.0,
-                 stack0=None,
-                 stack_md=None,
+                 janitor=None,
                  timespan_method="ensemble_inner",
                  pad_fraction_cutoff=0.05,
                  residual_norm_floor=0.01,
@@ -387,6 +386,8 @@ def stack_groups(keyed_ensemble,
         message += "method is set to weighted_stack but weight_key value was no specified.\n"
         message += "Tha algorithm needs to fetch weights from Metadata using the key defined by the weight_key argument"
         raise ValueError(message)
+    if janitor is None:
+        janitor = Janitor()
     
     # note this constructor sets u slos for members but doesn't 
     # doesn't create any Seismogram objects
@@ -399,8 +400,6 @@ def stack_groups(keyed_ensemble,
         argdoc["weight_key"] = weight_key
         argdoc["undefined_weight"] = undefined_weight
     if method in ["median","robust_dbxcor"]:
-        if stack_md:
-            argdoc["stack_md"] = stack_md
         argdoc["timespan_method"] = timespan_method
         argdoc["pad_fraction_cutoff"] = pad_fraction_cutoff
         argdoc["residual_norm_floor"] = residual_norm_floor
@@ -418,7 +417,17 @@ def stack_groups(keyed_ensemble,
                 stack = linear_stack(ensemble,
                                      weight_key=weight_key,
                                      undefined_weight=undefined_weight)
+                wts = np.zeros(len(ensemble.member))
+                for i in range(len(ensemble.member)):
+                    if ensemble.member[i].live:
+                        if weight_key in ensemble.member[i]:
+                            wts[i] = ensemble.member[i][weight_key]
+                        else:
+                            wts[i] = undefined_weight
+                    else:
+                        wts[i] = 0.0   # not strictly necessary but clearer
             case "median":
+                stack_md = build_stackmd(ensemble,janitor)
                 stack,wts = robust_stack_3C(ensemble,
                                         method="median",
                                         stack0=None,
@@ -429,6 +438,7 @@ def stack_groups(keyed_ensemble,
                                     )
             
             case "robust_dbxcor":
+                stack_md = build_stackmd(ensemble,janitor)
                 # for present discard wts component weights
                 # possible extension is restack using something like max or 
                 # min weights as a single weight for each Seismogram
@@ -441,6 +451,7 @@ def stack_groups(keyed_ensemble,
                                         pad_fraction_cutoff=pad_fraction_cutoff,
                                         residual_norm_floor=residual_norm_floor,
                                     )
+                stack["stack_weights"] = wts
             case _:
                 message = prog
                 message += ":  landed in illegal method case of processing loop"
@@ -449,6 +460,13 @@ def stack_groups(keyed_ensemble,
                 raise RuntimeError(message)
         # append output even if it is marked dead
         stack["stack_sort_key_value"] = ekey
+        srcidlist = list()
+        for d in ensemble.member:
+            if d.live:
+                # we can assume source_id is defined in this context
+                srcid = d["source_id"]
+                srcidlist.append(srcid)
+        stack["stack_source_ids"] = srcidlist
         stacked_data.member.append(stack)
     # this has to be called first or number_live will always return 0 
     # it doesn't test memers if the ensemble is marked dead

@@ -19,15 +19,13 @@ stacking_parameters &Arr{
         residual_norm_floor 0.01
     }
 }
-# this is list of Metadata attributes to be copied to stack for robust methods
-# They are used to construct the stack_md object required by robust_stack 
-# when an initial stack is not defined.  These data are ignored for 
-# linear stacks
-stack_mdlist &Tbl{
-site_id
-npts
-starttime
-endtime
+# This is a list of nonstandard keys for Seismogram objects to 
+# be added to list of keepers stored for the Janitor 
+# whose clean method is applied to Metadata cloned for stack results
+# TODO:  these keys are for testing and should be removed from master
+# once I verify the code works correctly
+stack_add2keepers_list &Tbl{
+epicentral_distance
+seaz
+esaz
 }
-
-
