@@ -2,15 +2,15 @@ include_directories(
   ${Boost_INCLUDE_DIRS}
   ${GSL_INCLUDE_DIRS}
   ${pylib11_INCLUDE_DIRS}
-  ${PYTHON_INCLUDE_DIRS}
+  ${Python_INCLUDE_DIRS}
   $ENV{MSPASS_HOME}/include
   ${PROJECT_SOURCE_DIR}/include
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_BINARY_DIR}/include)
 
 
-#pybind11_add_module(pypwmigcore pwmigcore_py.cc)
-Python_add_library(pypwmigcore pwmigcore_py.cc)
+pybind11_add_module(pypwmigcore pwmigcore_py.cc)
+#Python_add_library(pypwmigcore pwmigcore_py.cc)
 
 target_link_libraries(pypwmigcore PRIVATE pwmig 
   $ENV{MSPASS_HOME}/lib/libmspass.a 
