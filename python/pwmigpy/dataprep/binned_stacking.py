@@ -558,7 +558,7 @@ def set_ensemble_weights(ensemble,
                 d[raw_weight_key] = Null_weight_value
     return ensemble
     
-def compute_summary_weight(d,keylist,method=["minimum"])->tuple:
+def compute_summary_weight(d,keylist,method="minimum")->tuple:
     """
     Compute a composite weight value from multiple estimates.
     
@@ -675,11 +675,15 @@ def build_stackmd(ensemble,janitor=None)->Metadata:
     # clone the Metadata of the first live member of ensemble
     for d in ensemble.member:
         if d.live:
-            stackmd = Metadata(d)
+            # Could do a type check coming into this routine 
+            # but expected use is mainly within this module where 
+            # we can assume ensemble is a SeismogramEnsemble
+            #Careful if this module is made more generic for mspass
+            stackmd = Seismogram(d)
             break
     if run_janitor:
         janitor.clean(stackmd)
-    return stackmd
+    return Metadata(stackmd)
 
 def get_subdoc_value(doc,key,separator="."):
     """
