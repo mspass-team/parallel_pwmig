@@ -25,54 +25,6 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   message (STATUS "Enabled Coverage")
 endif ()
 
-#find_program(MY_PYTHON_EXECUTABLE NAMES python3 python)
-#
-#if(NOT MY_PYTHON_EXECUTABLE)
-#    message(WARNING "Python interpreter not found.")
-#    find_package(Python COMPONENTS Interpreter Development)
-#else()
-#
-#    # Get the version of the Python interpreter
-#    execute_process(
-#        COMMAND ${MY_PYTHON_EXECUTABLE} --version
-#        OUTPUT_VARIABLE PYTHON_VERSION_OUTPUT
-#        ERROR_VARIABLE PYTHON_VERSION_OUTPUT
-#        OUTPUT_STRIP_TRAILING_WHITESPACE
-#        ERROR_STRIP_TRAILING_WHITESPACE
-#    )
-#
-#    string(REGEX MATCH "Python ([0-9]+\\.[0-9]+)" _ ${PYTHON_VERSION_OUTPUT})
-#    set(MY_PYTHON_VERSION ${CMAKE_MATCH_1})
-#    
-#    message(STATUS "Found Python version: ${MY_PYTHON_VERSION}")
-#    find_package(Python ${MY_PYTHON_VERSION} EXACT COMPONENTS Interpreter Development)
-#endif()
-#
-#if (Python_FOUND)
-#  find_package (pybind11)
-#  if (NOT pybind11_FOUND)
-#    message (STATUS "Building Pybind11")
-#    include (cmake/pybind11.cmake)
-#    fetch_pybind11 (
-#      ${PROJECT_SOURCE_DIR}/cmake
-#      ${PROJECT_BINARY_DIR}/pybind11
-#      )
-#  endif ()
-#  message (STATUS "Python_LIBRARIES = ${Python_LIBRARIES}")
-#  message (STATUS "Python_EXECUTABLE = ${Python_EXECUTABLE}")
-#  message (STATUS "Python_INCLUDE_DIRS = ${Python_INCLUDE_DIRS}")
-#  message (STATUS "pybind11_LIBRARIES = ${pybind11_LIBRARIES}")
-#  message (STATUS "pybind11_INCLUDE_DIR= ${pybind11_INCLUDE_DIR}")
-#  
-#  # Disable pybind11's strict GIL checks to prevent segfaults in CI environments
-#  # where background threads (e.g. from PyMongo) may interact with pybind11 objects
-#  add_compile_definitions(PYBIND11_NO_ASSERT_GIL_HELD_INCREF_DECREF)
-#  
-#  add_subdirectory (python)
-#else ()
-#  message (WARNING "Python not found")
-#endif ()
-
 find_package (PythonInterp 3)
 
 if (PYTHONINTERP_FOUND)
@@ -148,16 +100,14 @@ endif ()
 find_package(OpenMP)
 message(STATUS "Trying FortranCInterface")
 include (FortranCInterface)
-message(STATUS "Section 2 of FCI")
 list (APPEND FORTRAN_FUNCTIONS ddot dscal daxpy dcopy dnrm2)
 list (APPEND FORTRAN_FUNCTIONS dgetrf dgetri)
 list (APPEND FORTRAN_FUNCTIONS dlamch dstebz dstein)
-message(STATUS "Section 3 of FCI")
 FortranCInterface_HEADER (include/FC.h
   MACRO_NAMESPACE "FC_"
   SYMBOLS ${FORTRAN_FUNCTIONS}
   )
-message(STATUS "Finished FCI")
+message(STATUS "Finished building FortranCInterface")
 
 # Set up mspass for now with this environment variable
 if (DEFINED ENV{MSPASS_HOME})
