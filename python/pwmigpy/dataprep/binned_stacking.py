@@ -30,6 +30,7 @@ from mspasspy.ccore.seismic import (SeismogramEnsemble,
 
 from mspasspy.algorithms.basic import ExtractComponent
 from mspasspy.algorithms.MCXcorStacking import robust_stack
+from mspasspy.db.normalize import normalize
 
 def load_and_sort(db,
                   key_or_query_list,
@@ -38,6 +39,12 @@ def load_and_sort(db,
                   collection="wf_Seismogram",
                   data_type="Seismogram",
                   drop_abortions=True,
+                  magnitude_key=None,
+                  full_weight_magnitude=6.0,
+                  floor_magnitude=4.0,
+                  minimum_weight=0.01,
+                  default_magnitude=4.5,
+                  magnitude_weight_key="magnitude_weight"
                   )->dict:
     """
     Load data defined by a list of key values and sort them into 
@@ -150,6 +157,12 @@ def load_and_sort(db,
         message = prog + ":  data_type={} is not allowed.  Must be either TimeSeries or Seismogram".format(data_type)
         raise ValueError(message)
     
+    # both of these must be defined to enable magnitude weighting
+    if magnitude_key is None:
+        set_magnitude_weight = False
+    else:
+        set_magnitude_weight = True
+    
     # we bury abortions with ths undertaker
     stedronsky = Undertaker(db)
     dbcol = db[collection]
@@ -157,6 +170,38 @@ def load_and_sort(db,
     for query in query_list:
         cursor = dbcol.find(query)
         e = db.read_data(cursor,collection=collection)
+        if set_magnitude_weight:
+            # pull source_id from the first record it is found
+            # then query source collection for source data
+            # could do this with a matcher but seems an unecessary complexity 
+            # for this case
+            magnitude_not_found=True
+            for d in e.member:
+                if "source_id" in d:
+                    srcid = d["source_id"]
+                    doc = db.source.find_one({"_id" : srcid})
+                    if doc and magnitude_key in doc:
+                        mag = doc[magnitude_key]
+                    else:
+                        mag = default_magnitude
+                    magwt = magnitude_weight(mag,
+                                             full_weight_magnitude=full_weight_magnitude,
+                                             floor_magnitude=floor_magnitude,
+                                             minimum_weight=minimum_weight,
+                                             )
+                    magnitude_not_found = True
+                    break
+            if magnitude_not_found:
+                magwt = magnitude_weight(default_magnitude,
+                                         full_weight_magnitude=full_weight_magnitude,
+                                         floor_magnitude=floor_magnitude,
+                                         minimum_weight=minimum_weight,
+                                         )
+                
+            for i in range(len(e.member)):
+                e.member[i][magnitude_weight_key] = magwt
+                        
+            
         # note most dictionaries use string keys but docuentation says 
         # any immutable type can serve as a dictionary key.   The most 
         # common key to use here will be ObjectId values which will work
@@ -346,7 +391,7 @@ def stack_groups(keyed_ensemble,
            For the record that is the standard way seismic reflection 
            data are "stacked".  All data are given equal weight in 
            the stack
-         "weighted_stack" - invokes a weighted mean with the weights 
+         "weighted_average" - invokes a weighted mean with the weights 
            extracted from each atomic datum's Metatdata container 
            with the (then required) key defined by the "weight_key"
            argument.  Note if this method is selected "weight_key" 
@@ -383,7 +428,7 @@ def stack_groups(keyed_ensemble,
     if method == "weighted_average" and weight_key is None:
         message = prog
         message += ":  illegal argument combination.\n"
-        message += "method is set to weighted_stack but weight_key value was no specified.\n"
+        message += "method is set to weighted_average but weight_key value was no specified.\n"
         message += "Tha algorithm needs to fetch weights from Metadata using the key defined by the weight_key argument"
         raise ValueError(message)
     if janitor is None:
@@ -396,7 +441,7 @@ def stack_groups(keyed_ensemble,
     # output's Metadata container
     argdoc=dict()
     argdoc["method"]=method
-    if method=="weighted_stack":
+    if method=="weighted_average":
         argdoc["weight_key"] = weight_key
         argdoc["undefined_weight"] = undefined_weight
     if method in ["median","robust_dbxcor"]:
@@ -646,6 +691,39 @@ def compute_summary_weight(d,keylist,method="minimum")->tuple:
             message += "Must be one of: minimum, maximum, median, or logmean"
             raise ValueError(message)
     return [wt,error_count]
+
+def set_ensemble_summary_weights(ensemble,
+                                 keylist,
+                                 wtkey,
+                                 method="minimum",
+                                 null_weight_value=1.0,
+                                 )->SeismogramEnsemble:
+    """
+    """
+    nkeys=len(keylist)
+    if nkeys==1:
+        # in this case this is just a copy of data from one key to another
+        key=keylist[0]
+        for d in ensemble.member:
+            if d.live:
+                if key in d:
+                    d[wtkey] = d[key]
+                else:
+                    d[wtkey] = null_weight_value
+    elif nkeys>1:
+        nkeys = len(keylist)
+        for i in range(len(ensemble.member)):
+            if ensemble.member[i].live:
+                wt,errcount = compute_summary_weight(ensemble.member[i], keylist, method=method)
+                if errcount==nkeys:
+                    ensemble.member[i][wtkey] = null_weight_value
+                else:
+                    ensemble.member[i][wtkey] = wt
+    else:
+        for d in ensemble.member:
+            if d.live:
+                d[wtkey] = null_weight_value
+    return ensemble
 
 def build_stackmd(ensemble,janitor=None)->Metadata:
     """

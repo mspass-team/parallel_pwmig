@@ -135,8 +135,9 @@ def make_dfile_name(clusterdoc)->str:
     telecluster document using a base name and grid index values.  
     A typical example would be:  stackdata_bin_2_5
     """
-    azindex=clusterdoc["azimuth_index"]
-    delta_index = clusterdoc["distance_index"]
+    subdoc = clusterdoc['gridcell']
+    azindex=subdoc["azimuth_index"]
+    delta_index = subdoc["distance_index"]
     dfile = "stackdata_bin_{}_{}".format(azindex,delta_index)
     return dfile
 
@@ -187,13 +188,101 @@ def create_stack_md(keyed_ensembles,stack_mdlist)->Metadata:
                     return md
     return md
             
+def pf2snrwt_control(pf)->dict:
+    """
+    Create control structure to drive signal-to-noise ratio conversions 
+    to weights for weighted stacks.
     
+    The structure of the pf is expected to resolve to nested dictionaries.
+    Easier explained with an example:
+        
+        ```
+        snr_weighting &Arr{
+            snr_RF.snr_H &Arr{
+                weight_key RF_snrwt
+                snr_floor 10.0
+                weight_floor 0.01
+                full_weight_snr 500.0
+            }
+            Parrival.snr_filtered_peak &Arr{
+                weight_key snr_filtered_peak_wt
+                snr_floor 10.0
+                weight_floor 0.01
+                full_weight_snr 500.0
+            }
+            Parrival.median_snr &Arr{
+                weight_key median_snr_wt
+                snr_floor 10.0
+                weight_floor 0.01
+                full_weight_snr 500.0
+            }
+        ]
+
+        ```
+    where the top level key is "snr_weight".  The enclosed &Arr 
+    are returned as dictionaries with key defined by the associated
+    &Arr tag.  e.g. result["snr_RF.snr_H"] would retrieve a dictionary
+    with the data in the "snr_RF.snr_H" block.
+    
+    An more generic perspective of this function is it converts a 
+    set of nested Arr blocks to a dictionary of dictionaries.  
+    
+    :param pf: AntelopePf object created from a pf file.  Must contain an 
+      Arr section keyed by "snr_weighting" with content as described above.
+    :type pf:  mspasspy.ccore.utility.AntelopePf object
+    """
+    pfsnr = pf.get_branch("snr_weighting")
+    wt_control = dict()
+    for key in pfsnr.arr_keys():
+        md = pfsnr.get_branch(key)
+        doc = dict(md)
+        wt_control[key] = doc
+    return wt_control
+
+def set_weights(dataset,
+                wt_control,
+                summary_weight_output_key="weight",
+                magnitude_weight_key=None)->dict:
+    """
+    Sets weights in dataset using control information passed via the 
+    wt_control dictionary created by the function above called pf2snrwt_control.
+    Note this could be parallelized but for now left serial as it isn't 
+    a challenging calculation.
+    """
+    summary_weight_key_list=list()
+    for wkey in wt_control:
+        this_wt_control = wt_control[wkey]
+        summary_weight_key_list.append(this_wt_control["weight_key"])
+    if magnitude_weight_key:
+        summary_weight_key_list.append(magnitude_weight_key)
+    
+    for dkey in dataset.keys():
+        ens = dataset[dkey]
+        for wkey in wt_control:
+            wtctrl = wt_control[wkey]
+            ens = bsm.set_snr_weights(ens,
+                                  wkey,
+                                  wtctrl["weight_key"],
+                                  snr_floor=wtctrl["snr_floor"],
+                                  weight_floor=wtctrl["weight_floor"],
+                                  full_weight_snr=wtctrl["full_weight_snr"],
+                            )
+        ens = bsm.set_ensemble_summary_weights(ens,
+                                               summary_weight_key_list,
+                                               summary_weight_output_key)
+        dataset[dkey] = ens
+                                  
+    return dataset
+    
+      
 
 def main(args=None):
+    """
+    """
     if args is None:
         args = sys.argv[1:]
     parser = argparse.ArgumentParser(
-        prog = "pseudosource_staacker",
+        prog = "pseudosource_stacker",
         usage="%(prog)s dbname [-pf pffile -outdir output_directory -tag dtag]",
         description="Stack groups of common source gathers using groupings created by telecluster",
     )
@@ -205,15 +294,15 @@ def main(args=None):
     )
     parser.add_argument(
         "-pf",
-        "pffile",
+        "--pffile",
         action="store",
         type=str,
-        default="pseudostation_stacker.pf",
+        default="pseudosource_stacker.pf",
         help="Define parameter file that defines tool options",
     )
     parser.add_argument(
         "-outdir",
-        "output_directory",
+        "--output_directory",
         action="store",
         type=str,
         default="binned_stacks",
@@ -221,41 +310,66 @@ def main(args=None):
         )
     parser.add_argument(
         "-tag",
-        "data_tag",
+        "--data_tag",
         action="store",
         type=str,
         default="pseudostation_stacks",
         help="data_tag value passed to Dataase.save_data for all outputs",
         )
     args = parser.parse_args(args)
-    output_directory = args.outdir
-    dtag = args.tag
+    output_directory = args.output_directory
+    dtag = args.data_tag
     dbname = args.dbname
     dbclient=DBClient()
     db=Database(dbclient,dbname)
     pffile = args.pffile
     pf = AntelopePf(pffile)
     control = bsscontrol(pf)
+    md = pf.get_branch("magnitude_weighting")
+    magwt_control = dict(md)
+    if control.enabled("weighted_average"):
+        snrwt_control = pf2snrwt_control(pf) 
     janitor=Janitor()
-    auxmdkeys = pf.gettbl("stack_add2keepers_list")
+    auxmdkeys = pf.get_tbl("stack_add2keepers_list")
     for key in auxmdkeys:
         janitor.add2keepers(key)
+    n = db.telecluster.count_documents({})
+    print("pseudosource_stacker:  working on {} source clusters created by telecluster".format(n))
     # outer loop over groupings defined by telecluster
     # currently read all - TODO:  add optional query of telecluster collction
     # note this could be parallelized over this outer loop
     cursor = db.telecluster.find({})   
     for clusterdoc in cursor:
         source_id_list = parse_telecluster_source_ids(clusterdoc)
-        dataset = bsm.load_and_sort(db)
+
+        if magwt_control["enable"]:
+            dataset = bsm.load_and_sort(db, 
+                                        source_id_list,
+                                        magnitude_key=magwt_control["magnitude_key"],
+                                        full_weight_magnitude=magwt_control["full_weight_magnitude"],
+                                        floor_magnitude=magwt_control["floor_magnitude"],
+                                        minimum_weight=magwt_control["minimum_weight"],
+                                        default_magnitude=magwt_control["default_magnitude"],
+                                        magnitude_weight_key=magwt_control["magnitude_weight_key"],
+                                        )
+        else:
+            dataset = bsm.load_and_sort(db)
+        print("Loaded {} station gathers with {} sources for telecluster doc id={}".format(len(dataset),len(source_id_list),clusterdoc['_id']))
+            
         for algorithm in control.algorithm_list:
             if control.enabled(algorithm):
+                print("stacking these data with algorithm=",algorithm)
                 argdoc = control.getargs(algorithm)
                 match algorithm:
                     case "average":
                         # average currently has no options so argdoc is ignored
                         stacked_data = bsm.stack_groups(dataset,
                                                     method=algorithm)
-                    case "weighted_stack":
+                    case "weighted_average":
+                        dataset = set_weights(dataset,
+                                              snrwt_control,
+                                              summary_weight_output_key=argdoc["weight_key"],
+                                        )
                         stacked_data = bsm.stack_groups(dataset,
                                         method=algorithm,
                                         weight_key=argdoc["weight_key"],
@@ -266,14 +380,14 @@ def main(args=None):
                                         method=algorithm,
                                         janitor=janitor,
                                         timespan_method=argdoc["timespan_method"],
-                                        pad_fracton_cutoff=argdoc["pad_fraction_cutoff"],
+                                        pad_fraction_cutoff=argdoc["pad_fraction_cutoff"],
                                         )
                     case "robust_dbxcor":
                         stacked_data = bsm.stack_groups(dataset,
                                         method=algorithm,
                                         janitor=janitor,
                                         timespan_method=argdoc["timespan_method"],
-                                        pad_fracton_cutoff=argdoc["pad_fraction_cutoff"],
+                                        pad_fraction_cutoff=argdoc["pad_fraction_cutoff"],
                                         residual_norm_floor=argdoc["residual_norm_floor"],
                                         )
                 if stacked_data.live:
