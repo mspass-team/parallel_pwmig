@@ -1,3 +1,8 @@
+# the content of this Arr is translated into a python dictionary 
+# used for a base query for mongodb find on wf_Seismogram
+wf_Seismogram_base_query &Arr{
+  data_tag CNRRFDecon_data_raw
+}
 stacking_parameters &Arr{
     average &Arr{
         enable true
@@ -59,7 +64,10 @@ magnitude_weighting &Arr{
 # TODO:  these keys are for testing and should be removed from master
 # once I verify the code works correctly
 stack_add2keepers_list &Tbl{
-epicentral_distance
-seaz
-esaz
+# do not delete these or you will lose important metadata
+sumwt
+Nstack
+stack_source_ids
+stack_sort_key_value
+# add other keys you want to save after this line
 }
