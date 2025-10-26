@@ -30,7 +30,6 @@ from mspasspy.ccore.seismic import (SeismogramEnsemble,
 
 from mspasspy.algorithms.basic import ExtractComponent
 from mspasspy.algorithms.MCXcorStacking import robust_stack
-from mspasspy.db.normalize import normalize
 
 def load_and_sort(db,
                   key_or_query_list,
@@ -229,7 +228,7 @@ def load_and_sort(db,
                     stedronsky.bury(d)
     return sorted_data
 
-def linear_stack(ens,weight_key=None,undefined_weight=0.0):
+def linear_stack(ens,weight_key=None,undefined_weight=0.0,sumwt_key="sumwt"):
     """
     Generic linear stacking function to vertically average all members of 
     an ensemble. 
@@ -303,6 +302,7 @@ def linear_stack(ens,weight_key=None,undefined_weight=0.0):
     # /= is currently not defined but *= is so we have to compute this as a multiplier
     normalizer=1.0/sumwt
     result.data *= normalizer
+    result[sumwt_key] = sumwt
     return result            
                 
 def robust_stack_3C(ensemble,
@@ -451,7 +451,7 @@ def stack_groups(keyed_ensemble,
     stacked_data["stacker_arguments"]=argdoc
     for ekey in keyed_ensemble:
         ensemble = keyed_ensemble[ekey]
-        
+        Nstack = number_live(ensemble)
         # old versions of python will fail on this line but since this 
         # construct was added after 3.10 I will use it here for improved 
         # raadability and efficiency
@@ -503,7 +503,11 @@ def stack_groups(keyed_ensemble,
                 message += "This should not happen and is a fatal error\n"
                 message += "Likely error in code defining supported methods list"
                 raise RuntimeError(message)
-        # append output even if it is marked dead
+        
+        # this is redundant for median and robust_dbxcor data but needed 
+        # for average and weighted_average.  Minor cost to do this
+        janitor.clean(stack)
+        stack["Nstack"] = Nstack
         stack["stack_sort_key_value"] = ekey
         srcidlist = list()
         for d in ensemble.member:
@@ -512,6 +516,7 @@ def stack_groups(keyed_ensemble,
                 srcid = d["source_id"]
                 srcidlist.append(srcid)
         stack["stack_source_ids"] = srcidlist
+        # append output even if it is marked dead
         stacked_data.member.append(stack)
     # this has to be called first or number_live will always return 0 
     # it doesn't test memers if the ensemble is marked dead
