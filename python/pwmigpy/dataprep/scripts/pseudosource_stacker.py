@@ -394,12 +394,13 @@ def main(args=None):
     parser.add_argument(
            "-v",
            "--verbose",
-           action="store",
+           action="store_true",
            help="Print some progress data instead of start and end info"
         )
     args = parser.parse_args(args)
     if args.verbose:
         verbose = True
+        print("pseudosource_stacker:  started and running in verbose mode")
     else:
         verbose = False
     output_directory = args.output_directory
