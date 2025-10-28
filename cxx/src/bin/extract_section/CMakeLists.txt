@@ -3,7 +3,7 @@ include_directories(
   ${pybind11_INCLUDE_DIR}
   ${PYTHON_INCLUDE_DIRS}
   ${MSPASSHOME}/include
-  #/home/pavlis/mspass/include
+  ${Boost_INCLUDE_DIRS}
   ${PROJECT_BINARY_DIR}/include
   ${PROJECT_SOURCE_DIR}/include)
 

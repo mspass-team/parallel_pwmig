@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.4)
+cmake_minimum_required (VERSION 3.11)
 
 project (parallel_pwmig Fortran C CXX)
 
@@ -25,7 +25,28 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   message (STATUS "Enabled Coverage")
 endif ()
 
-find_package (Boost 1.64.0 COMPONENTS serialization)
+find_package (PythonInterp 3)
+
+if (PYTHONINTERP_FOUND)
+  find_package (pybind11)
+  if (NOT pybind11_FOUND)
+    message (STATUS "Building Pybind11")
+    include (cmake/pybind11.cmake)
+    fetch_pybind11 (
+      ${PROJECT_SOURCE_DIR}/cmake
+      ${PROJECT_BINARY_DIR}/pybind11
+      )
+  endif ()
+  message (STATUS "PYTHON_LIBRARIES = ${PYTHON_LIBRARIES}")
+  message (STATUS "PYTHON_EXECUTABLE = ${PYTHON_EXECUTABLE}")
+  message (STATUS "PYTHON_INCLUDE_DIRS = ${PYTHON_INCLUDE_DIRS}")
+  message (STATUS "pybind11_LIBRARIES = ${pybind11_LIBRARIES}")
+  message (STATUS "pybind11_INCLUDE_DIR= ${pybind11_INCLUDE_DIR}")
+else ()
+  message (WARNING "Python not found")
+endif ()
+
+find_package (Boost 1.74.0 COMPONENTS serialization)
 if (NOT Boost_FOUND)
   message (STATUS "Building Boost")
   include (cmake/boost.cmake)
@@ -77,7 +98,7 @@ elseif (NOT LAPACK_FOUND)
 endif ()
 
 find_package(OpenMP)
-
+message(STATUS "Trying FortranCInterface")
 include (FortranCInterface)
 list (APPEND FORTRAN_FUNCTIONS ddot dscal daxpy dcopy dnrm2)
 list (APPEND FORTRAN_FUNCTIONS dgetrf dgetri)
@@ -86,28 +107,7 @@ FortranCInterface_HEADER (include/FC.h
   MACRO_NAMESPACE "FC_"
   SYMBOLS ${FORTRAN_FUNCTIONS}
   )
-
-find_package (PythonInterp 3)
-
-if (PYTHONINTERP_FOUND)
-  find_package (pybind11)
-  if (NOT pybind11_FOUND)
-    message (STATUS "Building Pybind11")
-    include (cmake/pybind11.cmake)
-    fetch_pybind11 (
-      ${PROJECT_SOURCE_DIR}/cmake
-      ${PROJECT_BINARY_DIR}/pybind11
-      )
-  endif ()
-  message (STATUS "PYTHON_LIBRARIES = ${PYTHON_LIBRARIES}")
-  message (STATUS "PYTHON_EXECUTABLE = ${PYTHON_EXECUTABLE}")
-  message (STATUS "PYTHON_INCLUDE_DIRS = ${PYTHON_INCLUDE_DIRS}")
-  message (STATUS "pybind11_LIBRARIES = ${pybind11_LIBRARIES}")
-  message (STATUS "pybind11_INCLUDE_DIR= ${pybind11_INCLUDE_DIR}")
-  add_subdirectory (python)
-else ()
-  message (WARNING "Python not found")
-endif ()
+message(STATUS "Finished building FortranCInterface")
 
 # Set up mspass for now with this environment variable
 if (DEFINED ENV{MSPASS_HOME})
@@ -120,6 +120,7 @@ message(STATUS "Assuming top level directory for MsPASS is ${MSPASSHOME}")
 
 add_subdirectory (src)
 add_subdirectory (include)
+add_subdirectory (python)
 
 #enable_testing ()
 #add_subdirectory (test)

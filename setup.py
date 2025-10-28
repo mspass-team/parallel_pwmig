@@ -69,8 +69,10 @@ class CMakeBuild(build_ext):
 
 ENTRY_POINTS = {
     'console_scripts': [
-        'pwmig-makegclgrid = pwmigpy.dataprep.scripts.makegclgrid:main',
-        'pwmig-project1dmod = pwmigpy.dataprep.scripts.project1dmod:main',
+        'makegclgrid = pwmigpy.dataprep.scripts.makegclgrid:main',
+        'project1dmod = pwmigpy.dataprep.scripts.project1dmod:main',
+        'telecluster = pwmigpy.dataprep.scripts.telecluster:main',
+        'pseudosource_stacker = pwmigpy.dataprep.scripts.pseudosource_stacker:main',
     ],
 }
 

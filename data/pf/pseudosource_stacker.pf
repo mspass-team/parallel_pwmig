@@ -1,33 +1,73 @@
+# the content of this Arr is translated into a python dictionary 
+# used for a base query for mongodb find on wf_Seismogram
+wf_Seismogram_base_query &Arr{
+  data_tag CNRRFDecon_data_raw
+}
 stacking_parameters &Arr{
     average &Arr{
         enable true
     }
-    weighted_stack &Arr{
-        enable false 
+    weighted_average &Arr{
+        enable true
         weight_key weight
-        undefined_value 1.0
+        undefined_weight 1.0
     }
     median &Arr{
         enable true
         timespan_method ensemble_inner
         pad_fraction_cutoff 0.05
     }
-    robust_dbxor &Arr{
-        enable true
+    robust_dbxcor &Arr{
+        enable false
         timespan_method ensemble_inner
         pad_fraction_cutoff 0.05
         residual_norm_floor 0.01
     }
 }
-# this is list of Metadata attributes to be copied to stack for robust methods
-# They are used to construct the stack_md object required by robust_stack 
-# when an initial stack is not defined.  These data are ignored for 
-# linear stacks
-stack_mdlist &Tbl{
-site_id
-npts
-starttime
-endtime
+snr_weighting &Arr{
+  snr_RF.snr_H &Arr{
+    weight_key RF_snrwt
+    snr_floor 10.0
+    weight_floor 0.01
+    full_weight_snr 500.0
+  }
+  Parrival.snr_filtered_peak &Arr{
+    weight_key snr_filtered_peak_wt
+    snr_floor 10.0
+    weight_floor 0.01
+    full_weight_snr 500.0
+  }
+  Parrival.median_snr &Arr{
+    weight_key median_snr_wt
+    snr_floor 10.0
+    weight_floor 0.01
+    full_weight_snr 500.0
+  }
+}
+# controls magnitude weighting 
+# set ensable false to turn that feature off
+# defaults in this file are true amplitude weighting between 4 and 6 and 
+# fixed, 1.0 weights above 6
+magnitude_weighting &Arr{
+  enable true
+  magnitude_key magnitude
+  full_weight_magnitude 6.0
+  floor_magnitude 4.0
+  minimum_weight 0.01
+  default_magnitude 4.5
+  magnitude_weight_key magnitude_weight
 }
 
-
+# This is a list of nonstandard keys for Seismogram objects to 
+# be added to list of keepers stored for the Janitor 
+# whose clean method is applied to Metadata cloned for stack results
+# TODO:  these keys are for testing and should be removed from master
+# once I verify the code works correctly
+stack_add2keepers_list &Tbl{
+# do not delete these or you will lose important metadata
+sumwt
+Nstack
+stack_source_ids
+stack_sort_key_value
+# add other keys you want to save after this line
+}
