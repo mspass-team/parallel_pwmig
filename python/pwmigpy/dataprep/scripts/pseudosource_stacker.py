@@ -433,6 +433,7 @@ def main(args=None):
     # note this could be parallelized over this outer loop
     cursor = db.telecluster.find({})   
     for clusterdoc in cursor:
+        tc_id = clusterdoc["_id"]
         source_id_list = parse_telecluster_source_ids(clusterdoc)
         query_list = srcidlist2querylist(base_query,source_id_list)
 
@@ -519,6 +520,9 @@ def main(args=None):
                     # if it had been pushed to the load_special_attributes
                     # function.
                     stacked_data["telecluster_events"] = source_id_list
+                    # essential to save this for pwstack 
+                    # needs the data in this doc to define ensembles it loads
+                    stacked_data["telecluster_id"] = tc_id
                     dfile=make_dfile_name(clusterdoc)
                     db.save_data(stacked_data,
                                  collection="wf_Seismogram",

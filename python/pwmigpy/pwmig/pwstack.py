@@ -7,9 +7,10 @@ allow pwstack to be implemented in a mspass workflow.  The
 algorthms are dogmatically parallel because it is known this program
 is highly parallelizable and preferable to be  run parallel.
 """
-import dask
+import dask.bag as dbg
 import math
 
+from pymongo import GEOSPHERE
 
 from mspasspy.ccore.seismic import SeismogramEnsemble
 # We have a python wrapper for the C++ implementation of top mutes (_TopMute)
@@ -18,6 +19,7 @@ from mspasspy.ccore.seismic import SeismogramEnsemble
 #from mspasspy.algorithms.window import TopMute
 from mspasspy.ccore.algorithms.basic import _TopMute
 from mspasspy.ccore.utility import MsPASSError,ErrorSeverity
+from mspasspy.util.seismic import number_live
 
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth,kilometers2degrees
@@ -111,6 +113,7 @@ class pwstack_control:
         self.db=db
         gridname=pf.get_string("pseudostation_grid_name")
         self.pseudostation_gridname=gridname
+        #print("Debug:  trying to read GCLgrid object with name=",gridname)
         # We query by name and object type - this may require additional
         # tags to find the unique grid requested but for how keep it simple
         query={'name' : gridname,'object_type' : 'pwmig::gclgrid::GCLgrid'}
@@ -147,31 +150,26 @@ def site_query(db,lat,lon,ix1,ix2,cutoff,units='km'):
 
     """
     if units=='radians':
-        rcutoff = cutoff  # query we use requires distance in radians
+        rcutoff = math.degrees(cutoff)
+        rcutoff = rcutoff*111120.0
     elif units=='km':
-        rcutoff = cutoff/6371.0  # might want to use a more precise earth radius in km here
+        rcutoff = cutoff*1000.0
     elif units=='degrees':
-        rcutoff = math.radians(cutoff)
+        rcutoff = cutoff*111120.0
 
-    #query = { "coordinates" : SON( [ ("$nearSphere" , [ lon , lat ]),
-    #             ("$maxDistance" , rcutoff) ] )
-    #       }
-    query = { "coordinates" : {
-          "$geoWithin" : {
-              "$centerSphere" : [ [lon, lat],rcutoff]
-           }
-         }
+    query = { "location" : {
+      "$nearSphere" : {
+        "$geometry" : {"type": "Point", "coordinates" : [lon,lat]},
+        "$maxDistance" : rcutoff,
         }
-    n=db.site.count_documents(query)
-    # debug
-    #print(lon,lat,ix1,ix2,n)
+      }
+    }
 
     idlist=list()
-    if n>0:
-        cursor=db.site.find(query)
-        for doc in cursor:
-            thisid=doc['_id']
-            idlist.append(thisid)
+    cursor=db.site.find(query)
+    for doc in cursor:
+        thisid=doc['_id']
+        idlist.append(thisid)
     result=dict()
     result['idlist']=idlist
     result['lat']=lat
@@ -180,7 +178,7 @@ def site_query(db,lat,lon,ix1,ix2,cutoff,units='km'):
     result['ix2']=ix2
     return result
 
-def build_wfquery(sid,rids):
+def build_wfquery(sid,rids,source_collection="telecluster"):
     """
     This function is more or less a reformatter.  It expands each
     source_id by a set of queries for a pseudostation grid
@@ -204,6 +202,8 @@ def build_wfquery(sid,rids):
       the pseudostation point - lat, lon, and two integer indicec
       (ix1, and ix2)   The return is mostly the contents of this plus
       the source data
+    :param source_collection:  name of MongoDB collection to fetch 
+      source documents.   
     :return: a list of dict data expanded from sid with one entry
       per pseudostation defined in ridlist.  The contents of each dict
       are copies of lat, lon, ix1, and ix2 plus  'query' attribute that
@@ -214,7 +214,8 @@ def build_wfquery(sid,rids):
     """
     allqdata = rids.copy()
     q=dict()
-    q['source_id'] = { '$eq' : sid }
+    idname = source_collection + "_id"
+    q[idname] = { '$eq' : sid }
     idlist = rids['idlist']
     q['site_id'] = { '$in' : rids['idlist']}
     allqdata['query']=q
@@ -232,16 +233,38 @@ def get_source_metadata(ensemble):
     as there are many ways a dead datum could lack the required metadata.
     Less likely here but a minor cost for robustness.   Returns an empty
     dict if there are no live members.   Caller must handle that condition.
+    
+    Note this is not the standard mspass way to handle source data. 
+    It is assumed pwstack is always reading the output of the 
+    pseudosource_stacker tool - or a descendent thereof.   It posts 
+    hypocentroid data that is the appropriate source data for normal use 
+    with pwstack/pwmig.   
     """
     result=dict()
+    if ensemble.dead() or number_live(ensemble)==0:
+        return result
+    found = False
     for d in ensemble.member:
-        if d.live:
-            result['source_lat'] = d.get_double('source_lat')
-            result['source_lon'] = d.get_double('source_lon')
-            result['source_depth'] = d.get_double('source_depth')
-            result['source_time'] = d.get_double('source_time')
-            result['source_id'] = d['source_id']
+        if d.live: 
+            if "hypocentroid" in d:
+                subdoc = d["hypocentroid"]
+                result['source_lat'] = subdoc["lat"]
+                result['source_lon'] = subdoc["lon"]
+                result['source_depth'] = subdoc["depth"]
+                result['source_time'] = subdoc["time"]
+                result["source_id"] = d["telecluster_id"]
+            else:
+                result['source_lat'] = d.get_double('source_lat')
+                result['source_lon'] = d.get_double('source_lon')
+                result['source_depth'] = d.get_double('source_depth')
+                result['source_time'] = d.get_double('source_time')
+                result['source_id'] = d['source_id']
+            found = True
             break
+    if not found:
+        message = "get_source_metadata:   found no source location data\n"
+        message += "Data need either soure collection data loaded by normalization or a hypocentroid subdoc\n"
+        message += "Neither were found any any member of this ensemble"
     return result
 
 def handle_relative_time(ensemble,arrival_key):
@@ -289,6 +312,7 @@ def read_ensembles(db,querydata,control,arrival_key="Ptime"):
     """
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
+    #print("Entered reader: fold=",fold)
     if fold<=control.stack_count_cutoff:
         d=SeismogramEnsemble()
     else:
@@ -305,8 +329,9 @@ def read_ensembles(db,querydata,control,arrival_key="Ptime"):
             # Note control.data_tag can be a None type here - see 
             # control object constructor
             d=db.read_data(cursor,collection='wf_Seismogram',
-                                    normalize=['source','site'],
+                                    normalize=['site'],
                                     data_tag=control.data_tag)
+        #print("Read ensemble of size=",len(d.member))
         if len(d.member) > 0:
             d = handle_relative_time(d,arrival_key)
             # When the ensemble is not empty we have to compute the 
@@ -363,21 +388,95 @@ def read_ensembles(db,querydata,control,arrival_key="Ptime"):
                 d.put('ix1',querydata['ix1']) 
                 d.put('ix2',querydata['ix2'])
                 d.put('gridname',control.pseudostation_gridname)
+    #print("Exiting reader")
     return d
+
+def save_pwstack_output(ens,db,data_tag,
+                                storage_mode="gridfs",
+                                    outdir=None,
+                                ):
+    """
+    Saves ensemble ens created from pwstack_ensemble with database indexing 
+    for input to pwmig.   Writes by default to gridfs.  If storage_mode is 
+    "file" sample data will be written to files in outdir with names 
+    of str(ens["source_id"]) + ".dat".  If source_id is not found for 
+    safety is defaults to a stock name of "pwstack_output.dat"
+    """
+    #print("Entered writer")
+    #print("Ensemble size = ",len(ens.member))
+    #if ens.dead():
+    #   print("Ensemble was marked dead and will not be saved")
+    if ens.live:
+        if storage_mode=="file":
+            if outdir:
+                odir=outdir
+            else:
+                odir="."
+            if "source_id" in ens:
+                dfile = str(ens["source_id"]) + ".dat"
+            else:
+                dfile = "pwstack_output.dat"
+            sdret = db.save_data(ens,
+                                 collection="wf_Seismogram",
+                                     storage_mode="file",
+                                         dir=odir,
+                                             dfile=dfile,
+                                                 data_tag=data_tag)
+        else:
+            sdret = db.save_data(ens,
+                                 collection="wf_Seismogram",
+                                     data_tag=data_tag)
+    else:
+        sdret=None
+    return sdret
+        
+
+def validate_site_collection(db):
+    """
+    The site collection must have a geographical index for the algorithm
+    used here to select waveforms for stations inside a cirtuclar region. 
+    This function test for existence of such an index for the magic 
+    key "coordinates" that are the standard geojson key used in mspass.
+    Since creating an index is s separate step from creating the site 
+    collection it will be common to forget to create this thing. 
+    The message posted when this function throws an exception should 
+    be clearer than a downstream error queries fail inside a map operator.
+    """
+    index_info = db.site.index_information()
+    # there can be multiple indices - make sure we have the right one
+    for index_name,details in index_info.items():
+        if details['key'] == [("coordinates", GEOSPHERE)]:
+            return
+    message = "pwmig:  site colllection is missing a required GEOSPHERE index on the coordinate key\n"
+    message += "Use db.site.create_index to create a GEOSPHERE index for coordinate values and try againg"
+    raise RuntimeError(message)
 
 def pwstack_ensemble_python(*arg):
     """
     Temporary workaround for a problem with return in dask. Patch we can
     hopefully remove when we understand this problem better.
+    
+    Note in this version if storage_mode is set to "file" file names 
+    will be automatically generated from source_id strings with ".dat" 
+    appended.   That produces a manageable number of files and is 
+    thought to be preferable to a single file to avoid dask workers 
+    colliding while trying to write to the same file.  
     """ 
     return pwstack_ensemble(*arg)
 
 def pwstack(db,pf,source_query=None,
+    source_collection="telecluster",
         slowness_grid_tag='RectangularSlownessGrid',
             data_mute_tag='Data_Top_Mute',
                  stack_mute_tag='Stack_Top_Mute',
                      save_history=False,instance='undefined',
-                        output_data_tag='test_pwstack_output'):
+                         storage_mode='gridfs',
+                             outdir=None,
+                                 output_data_tag='test_pwstack_output',
+                                     run_serial=False,
+                                         verbose=False):
+    if verbose:
+        print("Starting pwstack processing")
     # the control structure pretty much encapsulates the args for
     # this driver function
     control=pwstack_control(db,pf,slowness_grid_tag,data_mute_tag,
@@ -386,7 +485,11 @@ def pwstack(db,pf,source_query=None,
         base_query={}
     else:
         base_query=source_query
-    base_cursor=db.source.find(base_query)
+    dbsrc = db[source_collection]
+    base_cursor=dbsrc.find(base_query)
+    # make certain the site collection has a geographic index
+    # this function should throw an exception if the index is not defined
+    validate_site_collection(db)
     # We make an assumption here that the array of source ids created
     # here is tiny and not a memory problem.  Unambiguously true when
     # source side stack was previously completed.
@@ -418,6 +521,9 @@ def pwstack(db,pf,source_query=None,
     # Now we create a dask bag with query strings for all source_ids and
     # all staids.  For now we use a large memory model and build the
     # list of build_query returns and then construct a bag from that.
+    if verbose:
+        print("Generating queries to handle ",len(source_id_list),
+            " sources using array with ",len(staids)," stations")
     allqueries=list()
     for sid in source_id_list:
         for rids in staids:
@@ -430,24 +536,53 @@ def pwstack(db,pf,source_query=None,
             # debug
             #print(q['ix1'],q['ix2'],q['fold'])
             allqueries.append(q)
-    mybag=dask.bag.from_sequence(allqueries)
-    # These can now be deleted to save memory
-    del source_id_list
-    del staids
-    # parallel reader - result is a bag of ensembles created from
-    # queries held in query
-    mybag = mybag.map(lambda q : read_ensembles(db,q,control))
-    # Now run pwstack_ensemble - it has a long arg list
-    mybag = mybag.map(lambda d : pwstack_ensemble_python(d,
-            control.SlowGrid,
-              control.data_mute,
-                control.stack_mute,
-                  control.stack_count_cutoff,
-                    control.tstart,
-                      control.tend,
-                        control.aperture,
-                          control.aperture_taper_length,
-                            control.centroid_cutoff,
-                                False,'') )
-    mybag = mybag.map(lambda d : db.save_data(d,data_tag=output_data_tag))
-    mybag.compute()
+    if verbose:
+        print("Number of ensembles to processed=",len(allqueries))
+        
+
+    if run_serial:
+        if verbose:
+            print("Starting main processing using serial algorithm")
+        for q in allqueries:
+            d = read_ensembles(db,q,control)
+            d = pwstack_ensemble(d,
+                control.SlowGrid,
+                  control.data_mute,
+                    control.stack_mute,
+                      control.stack_count_cutoff,
+                        control.tstart,
+                          control.tend,
+                            control.aperture,
+                              control.aperture_taper_length,
+                                control.centroid_cutoff,
+                                    False,'')
+
+            sdret = save_pwstack_output(d,db,output_data_tag,storage_mode=storage_mode,outdir=outdir)
+            if verbose:
+                print(sdret)
+    else:
+        if verbose:
+            print("Starting main processing using parallel algorithm")
+        mybag=dbg.from_sequence(allqueries)
+        # These can now be deleted to save memory
+        #del source_id_list
+        #del staids
+        # parallel reader - result is a bag of ensembles created from
+        # queries held in query
+        mybag = mybag.map(lambda q : read_ensembles(db,q,control))
+        # Now run pwstack_ensemble - it has a long arg list
+        mybag = mybag.map(lambda d : pwstack_ensemble_python(d,
+                control.SlowGrid,
+                  control.data_mute,
+                    control.stack_mute,
+                      control.stack_count_cutoff,
+                        control.tstart,
+                          control.tend,
+                            control.aperture,
+                              control.aperture_taper_length,
+                                control.centroid_cutoff,
+                                    False,'') )
+        mybag = mybag.map(lambda d : db.save_pwstack_output(d,db,output_data_tag,storage_mode=storage_mode,outdir=outdir))
+        if verbose:
+            print("running compute to start lazy computations")
+        mybag.compute()
