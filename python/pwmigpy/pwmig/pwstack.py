@@ -389,7 +389,7 @@ def read_ensembles(db,querydata,control,arrival_key="Ptime"):
                 d.put('ix1',querydata['ix1']) 
                 d.put('ix2',querydata['ix2'])
                 d.put('gridname',control.pseudostation_gridname)
-    ddist.print("Exiting reader:  ensemble size=",len(d.member)
+    ddist.print("Exiting reader:  ensemble size=",len(d.member))
     return d
 
 def save_pwstack_output(ens,db,data_tag,
