@@ -8,6 +8,7 @@ algorthms are dogmatically parallel because it is known this program
 is highly parallelizable and preferable to be  run parallel.
 """
 import dask.bag as dbg
+import dask.distributed as ddist
 import math
 
 from pymongo import GEOSPHERE
@@ -312,14 +313,14 @@ def read_ensembles(db,querydata,control,arrival_key="Ptime"):
     """
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
-    #print("Entered reader: fold=",fold)
+    ddist.print("Entered reader: fold=",fold)
     if fold<=control.stack_count_cutoff:
         d=SeismogramEnsemble()
     else:
         query=querydata['query']
         n=db.wf_Seismogram.count_documents(query)
         #debug
-        #print(query,n)
+        ddist.print(query,n)
         if n==0:
             # This shouldn't ever really be executed unless stack_count_cutoff 
             # is 0 or the query is botched
@@ -331,7 +332,7 @@ def read_ensembles(db,querydata,control,arrival_key="Ptime"):
             d=db.read_data(cursor,collection='wf_Seismogram',
                                     normalize=['site'],
                                     data_tag=control.data_tag)
-        #print("Read ensemble of size=",len(d.member))
+        ddist.print("Read ensemble of size=",len(d.member))
         if len(d.member) > 0:
             d = handle_relative_time(d,arrival_key)
             # When the ensemble is not empty we have to compute the 
@@ -388,7 +389,7 @@ def read_ensembles(db,querydata,control,arrival_key="Ptime"):
                 d.put('ix1',querydata['ix1']) 
                 d.put('ix2',querydata['ix2'])
                 d.put('gridname',control.pseudostation_gridname)
-    #print("Exiting reader")
+    ddist.print("Exiting reader:  ensemble size=",len(d.member)
     return d
 
 def save_pwstack_output(ens,db,data_tag,
@@ -455,7 +456,7 @@ def pwstack_ensemble_python(query,db,control,output_data_tag,storage_mode,outdir
     """
     Single function to do db query, process, and save.  
     """ 
-    print("DEBUG:  processing data using query=",query)
+    ddist.print("DEBUG:  processing data using query=",query)
     d = read_ensembles(db,query,control)
     d = pwstack_ensemble(d,
         control.SlowGrid,
