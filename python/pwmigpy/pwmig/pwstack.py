@@ -451,20 +451,29 @@ def validate_site_collection(db):
     message += "Use db.site.create_index to create a GEOSPHERE index for coordinate values and try againg"
     raise RuntimeError(message)
 
-def pwstack_ensemble_python(*arg):
+def pwstack_ensemble_python(query,db,control,output_data_tag,storage_mode,outdir):
     """
-    Temporary workaround for a problem with return in dask. Patch we can
-    hopefully remove when we understand this problem better.
-    
-    Note in this version if storage_mode is set to "file" file names 
-    will be automatically generated from source_id strings with ".dat" 
-    appended.   That produces a manageable number of files and is 
-    thought to be preferable to a single file to avoid dask workers 
-    colliding while trying to write to the same file.  
+    Single function to do db query, process, and save.  
     """ 
-    return pwstack_ensemble(*arg)
+    print("DEBUG:  processing data using query=",query)
+    d = read_ensembles(db,query,control)
+    d = pwstack_ensemble(d,
+        control.SlowGrid,
+          control.data_mute,
+            control.stack_mute,
+              control.stack_count_cutoff,
+                control.tstart,
+                  control.tend,
+                    control.aperture,
+                      control.aperture_taper_length,
+                        control.centroid_cutoff,
+                            False,'')
 
-def pwstack(db,pf,source_query=None,
+    sdret = save_pwstack_output(d,db,output_data_tag,storage_mode=storage_mode,outdir=outdir)
+    return sdret
+
+#TODO:  if this works a docstring is way overdue
+def pwstack(db,daskclient,pf,source_query=None,
     source_collection="telecluster",
         slowness_grid_tag='RectangularSlownessGrid',
             data_mute_tag='Data_Top_Mute',
@@ -475,8 +484,8 @@ def pwstack(db,pf,source_query=None,
                                  output_data_tag='test_pwstack_output',
                                      run_serial=False,
                                          verbose=False):
-    if verbose:
-        print("Starting pwstack processing")
+    
+    print("Starting pwstack processing")
     # the control structure pretty much encapsulates the args for
     # this driver function
     control=pwstack_control(db,pf,slowness_grid_tag,data_mute_tag,
@@ -561,28 +570,18 @@ def pwstack(db,pf,source_query=None,
             if verbose:
                 print(sdret)
     else:
+        
         if verbose:
             print("Starting main processing using parallel algorithm")
-        mybag=dbg.from_sequence(allqueries)
-        # These can now be deleted to save memory
-        #del source_id_list
-        #del staids
-        # parallel reader - result is a bag of ensembles created from
-        # queries held in query
-        mybag = mybag.map(lambda q : read_ensembles(db,q,control))
-        # Now run pwstack_ensemble - it has a long arg list
-        mybag = mybag.map(lambda d : pwstack_ensemble_python(d,
-                control.SlowGrid,
-                  control.data_mute,
-                    control.stack_mute,
-                      control.stack_count_cutoff,
-                        control.tstart,
-                          control.tend,
-                            control.aperture,
-                              control.aperture_taper_length,
-                                control.centroid_cutoff,
-                                    False,'') )
-        mybag = mybag.map(lambda d : db.save_pwstack_output(d,db,output_data_tag,storage_mode=storage_mode,outdir=outdir))
-        if verbose:
-            print("running compute to start lazy computations")
-        mybag.compute()
+        # need to build a list of tuples to drive client map processing 
+        # a bit weird but this is a test of concept at this point
+        arglist = []
+        for q in allqueries:
+            t = [q,db,control,output_data_tag,storage_mode,outdir]
+            arglist.append(t)
+        print("DEBUG:   running map with list of size=",len(arglist))
+        futures = daskclient.map(pwstack_ensemble_python, *zip(*arglist),batch_size=100)
+        results=daskclient.gather(futures)
+        del futures
+        print("Finished - returned list of size=",len(results))
+        
