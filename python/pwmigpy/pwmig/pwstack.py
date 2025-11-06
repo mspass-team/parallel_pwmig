@@ -471,6 +471,12 @@ def pwstack_ensemble_python(query,db,control,output_data_tag,storage_mode,outdir
                         control.centroid_cutoff,
                             False,'')
     ddist.print("Finsihed pwstack.  Size of ensemble returned=",len(d.member))
+    if d.dead() or d.elog.size()>0:
+        ddist.print("Problem ensemble:  size of error log=",d.elog.size())
+        ddist.print("ensemble elog content")
+        logdata=d.elog.get_error_log()
+        for entry in logdata:
+            ddist.print(entry)
 
     sdret = save_pwstack_output(d,db,output_data_tag,storage_mode=storage_mode,outdir=outdir)
     ddist.print("Exited save_pwstack_output with return value=",sdret)
