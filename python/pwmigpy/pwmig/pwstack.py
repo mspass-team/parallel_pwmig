@@ -589,9 +589,21 @@ def pwstack(db,daskclient,pf,source_query=None,
         for q in allqueries:
             t = [q,db,control,output_data_tag,storage_mode,outdir]
             arglist.append(t)
+        N2run=len(arglist)
         print("DEBUG:   running map with list of size=",len(arglist))
-        futures = daskclient.map(pwstack_ensemble_python, *zip(*arglist),batch_size=100)
-        results=daskclient.gather(futures)
-        del futures
-        print("Finished - returned list of size=",len(results))
+        arg2run=[]
+        blocksize=20
+        for i in range(N2run):
+            if i==0:
+                arg2run.append(arglist[0])
+            elif i%blocksize==0 or i==(N2run-1):
+                print("Working on block ending at index=",i)
+                futures = daskclient.map(pwstack_ensemble_python, *zip(*arg2run))
+                results=daskclient.gather(futures)
+                print("Result list returned by this block=",results)
+                del futures
+                arg2run.clear()
+            else:
+                arg2run.append(arglist[i])
+        print("Finished")
         
