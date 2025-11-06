@@ -7,7 +7,7 @@ allow pwstack to be implemented in a mspass workflow.  The
 algorthms are dogmatically parallel because it is known this program
 is highly parallelizable and preferable to be  run parallel.
 """
-import dask.bag as dbg
+#import dask.bag as dbg
 import dask.distributed as ddist
 import math
 
@@ -28,7 +28,7 @@ from obspy.geodetics import gps2dist_azimuth,kilometers2degrees
 from pwmigpy.ccore.pwmigcore import (RectangularSlownessGrid,
                                    DepthDependentAperture,
                                    pwstack_ensemble)
-from pwmigpy.ccore.gclgrid import GCLscalarfield
+#from pwmigpy.ccore.gclgrid import GCLscalarfield
 from pwmigpy.db.database import GCLdbread
 
 def TopMuteFromPf(pf,tag):
@@ -403,10 +403,10 @@ def save_pwstack_output(ens,db,data_tag,
     of str(ens["source_id"]) + ".dat".  If source_id is not found for 
     safety is defaults to a stock name of "pwstack_output.dat"
     """
-    #print("Entered writer")
+    ddist,print("Entered writer")
     #print("Ensemble size = ",len(ens.member))
-    #if ens.dead():
-    #   print("Ensemble was marked dead and will not be saved")
+    if ens.dead():
+       ddist.print("Ensemble was marked dead and will not be saved")
     if ens.live:
         if storage_mode=="file":
             if outdir:
@@ -458,6 +458,7 @@ def pwstack_ensemble_python(query,db,control,output_data_tag,storage_mode,outdir
     """ 
     ddist.print("DEBUG:  processing data using query=",query)
     d = read_ensembles(db,query,control)
+    ddist.print("DEBUG:  running pwstack with ensemble of size=",len(d.member))
     d = pwstack_ensemble(d,
         control.SlowGrid,
           control.data_mute,
@@ -469,8 +470,10 @@ def pwstack_ensemble_python(query,db,control,output_data_tag,storage_mode,outdir
                       control.aperture_taper_length,
                         control.centroid_cutoff,
                             False,'')
+    ddist.print("Finsihed pwstack.  Size of ensemble returned=",len(d.member))
 
     sdret = save_pwstack_output(d,db,output_data_tag,storage_mode=storage_mode,outdir=outdir)
+    ddist.print("Exited save_pwstack_output with return value=",sdret)
     return sdret
 
 #TODO:  if this works a docstring is way overdue
