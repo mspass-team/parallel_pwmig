@@ -313,7 +313,7 @@ def read_ensembles(db,querydata,control,arrival_key="Ptime"):
     """
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
-    ##ddist.print("Entered reader: fold=",fold)
+    #ddist.print("Entered reader: fold=",fold)
     if fold<=control.stack_count_cutoff:
         d=SeismogramEnsemble()
     else:
@@ -405,8 +405,8 @@ def save_pwstack_output(ens,db,data_tag,
     """
     ddist,print("Entered writer")
     #print("Ensemble size = ",len(ens.member))
-    if ens.dead():
-       ddist.print("Ensemble was marked dead and will not be saved")
+    #if ens.dead():
+       #ddist.print("Ensemble was marked dead and will not be saved")
     if ens.live:
         if storage_mode=="file":
             if outdir:
@@ -470,13 +470,13 @@ def pwstack_ensemble_python(query,db,control,output_data_tag,storage_mode,outdir
                       control.aperture_taper_length,
                         control.centroid_cutoff,
                             False,'')
-    ddist.print("Finsihed pwstack.  Size of ensemble returned=",len(d.member))
-    if d.dead() or d.elog.size()>0:
-        ddist.print("Problem ensemble:  size of error log=",d.elog.size())
-        ddist.print("ensemble elog content")
-        logdata=d.elog.get_error_log()
-        for entry in logdata:
-            ddist.print(entry)
+    #ddist.print("Finsihed pwstack.  Size of ensemble returned=",len(d.member))
+    #if d.dead() or d.elog.size()>0:
+    #    ddist.print("Problem ensemble:  size of error log=",d.elog.size())
+    #    ddist.print("ensemble elog content")
+    #    logdata=d.elog.get_error_log()
+    #    for entry in logdata:
+    #        ddist.print(entry)
 
     sdret = save_pwstack_output(d,db,output_data_tag,storage_mode=storage_mode,outdir=outdir)
     ddist.print("Exited save_pwstack_output with return value=",sdret)
@@ -592,7 +592,7 @@ def pwstack(db,daskclient,pf,source_query=None,
         N2run=len(arglist)
         print("DEBUG:   running map with list of size=",len(arglist))
         arg2run=[]
-        blocksize=20
+        blocksize=50
         for i in range(N2run):
             if i==0:
                 arg2run.append(arglist[0])
