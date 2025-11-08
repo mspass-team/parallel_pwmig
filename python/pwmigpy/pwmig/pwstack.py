@@ -21,6 +21,7 @@ from mspasspy.ccore.seismic import SeismogramEnsemble
 from mspasspy.ccore.algorithms.basic import _TopMute
 from mspasspy.ccore.utility import MsPASSError,ErrorSeverity
 from mspasspy.util.seismic import number_live
+from mspasspy.client import Client
 
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth,kilometers2degrees
@@ -482,12 +483,13 @@ def pwstack_ensemble_python(query,db,control,output_data_tag,storage_mode,outdir
     ddist.print("Exited save_pwstack_output with return value=",sdret)
     return sdret
 
-def pwstack_ensemble_debug(query,client,control,output_data_tag,storage_mode,outdir):
+def pwstack_ensemble_debug(query,dbname,control,output_data_tag,storage_mode,outdir):
     """
     Same as above but creates and closes db on each call to see if there is a 
     resource leak problem in closing files when the db handle is serialzied.  
     """ 
-    db = client.get_database("usarray48")  # name special for this test
+    client = Client()
+    db = client.get_database(dbname)  # name special for this test
     d = read_ensembles(db,query,control)
     #ddist.print("DEBUG:  running pwstack with ensemble of size=",len(d.member))
     d = pwstack_ensemble(d,
@@ -624,7 +626,7 @@ def pwstack(mspass_client,dbname,pf,source_query=None,
         arglist = []
         for q in allqueries:
             #t = [q,db,control,output_data_tag,storage_mode,outdir]
-            t = [q,mspass_client,control,output_data_tag,storage_mode,outdir]
+            t = [q,"usarray48",control,output_data_tag,storage_mode,outdir]
             arglist.append(t)
         daskclient=mspass_client.get_scheduler()
         N2run=len(arglist)
