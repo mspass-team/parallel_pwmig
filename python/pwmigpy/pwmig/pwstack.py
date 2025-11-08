@@ -482,8 +482,42 @@ def pwstack_ensemble_python(query,db,control,output_data_tag,storage_mode,outdir
     ddist.print("Exited save_pwstack_output with return value=",sdret)
     return sdret
 
+def pwstack_ensemble_debug(query,client,control,output_data_tag,storage_mode,outdir):
+    """
+    Same as above but creates and closes db on each call to see if there is a 
+    resource leak problem in closing files when the db handle is serialzied.  
+    """ 
+    db = client.get_database("usarray48")  # name special for this test
+    d = read_ensembles(db,query,control)
+    #ddist.print("DEBUG:  running pwstack with ensemble of size=",len(d.member))
+    d = pwstack_ensemble(d,
+        control.SlowGrid,
+          control.data_mute,
+            control.stack_mute,
+              control.stack_count_cutoff,
+                control.tstart,
+                  control.tend,
+                    control.aperture,
+                      control.aperture_taper_length,
+                        control.centroid_cutoff,
+                            False,'')
+    #ddist.print("Finsihed pwstack.  Size of ensemble returned=",len(d.member))
+    #if d.dead() or d.elog.size()>0:
+    #    ddist.print("Problem ensemble:  size of error log=",d.elog.size())
+    #    ddist.print("ensemble elog content")
+    #    logdata=d.elog.get_error_log()
+    #    for entry in logdata:
+    #        ddist.print(entry)
+
+    sdret = save_pwstack_output(d,db,output_data_tag,storage_mode=storage_mode,outdir=outdir)
+    ddist.print("Exited save_pwstack_output with return value=",sdret)
+    del db
+    client._db_client.close()
+    return sdret
+
 #TODO:  if this works a docstring is way overdue
-def pwstack(db,daskclient,pf,source_query=None,
+#def pwstack(db,dask_client,pf,source_query=None,
+def pwstack(mspass_client,dbname,pf,source_query=None,
     source_collection="telecluster",
         slowness_grid_tag='RectangularSlownessGrid',
             data_mute_tag='Data_Top_Mute',
@@ -495,7 +529,9 @@ def pwstack(db,daskclient,pf,source_query=None,
                                      run_serial=False,
                                          verbose=False):
     
-    print("Starting pwstack processing")
+    if verbose:
+        print("Starting pwstack processing")
+    db = mspass_client.get_database(dbname)
     # the control structure pretty much encapsulates the args for
     # this driver function
     control=pwstack_control(db,pf,slowness_grid_tag,data_mute_tag,
@@ -587,8 +623,10 @@ def pwstack(db,daskclient,pf,source_query=None,
         # a bit weird but this is a test of concept at this point
         arglist = []
         for q in allqueries:
-            t = [q,db,control,output_data_tag,storage_mode,outdir]
+            #t = [q,db,control,output_data_tag,storage_mode,outdir]
+            t = [q,mspass_client,control,output_data_tag,storage_mode,outdir]
             arglist.append(t)
+        daskclient=mspass_client.get_scheduler()
         N2run=len(arglist)
         print("DEBUG:   running map with list of size=",len(arglist))
         arg2run=[]
@@ -598,7 +636,8 @@ def pwstack(db,daskclient,pf,source_query=None,
                 arg2run.append(arglist[0])
             elif i%blocksize==0 or i==(N2run-1):
                 print("Working on block ending at index=",i)
-                futures = daskclient.map(pwstack_ensemble_python, *zip(*arg2run))
+                #futures = daskclient.map(pwstack_ensemble_python, *zip(*arg2run))
+                futures = daskclient.map(pwstack_ensemble_debug, *zip(*arg2run))
                 results=daskclient.gather(futures)
                 print("Result list returned by this block=",results)
                 del futures
