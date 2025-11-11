@@ -9,6 +9,8 @@ is highly parallelizable and preferable to be  run parallel.
 """
 import dask
 import math
+# for parallell debugging - remove for production tests
+import dask.distributed as ddist
 
 
 from mspasspy.ccore.seismic import SeismogramEnsemble
@@ -25,8 +27,26 @@ from obspy.geodetics import gps2dist_azimuth,kilometers2degrees
 from pwmigpy.ccore.pwmigcore import (RectangularSlownessGrid,
                                    DepthDependentAperture,
                                    pwstack_ensemble)
-from pwmigpy.ccore.gclgrid import GCLscalarfield
 from pwmigpy.db.database import GCLdbread
+
+def initialize_workers(mspass_client):
+    """
+    Test function for initializing dask workers.   This is a workaround 
+    for a feature that this is testing.  If successful something similar 
+    should become part of mspass.
+    """
+    def init_dbclient(dbclient):
+        globals()["mspass_client"] = dbclient
+    # note this won't work with spark
+    scheduler = mspass_client.get_scheduler()
+    dbclient = mspass_client.get_database_client()
+    run_output = scheduler.run(init_dbclient,dbclient)
+    # documentation says this should be a dictionary giving results from 
+    # each worker - details are not given in the documentation I found
+    return run_output
+    
+    
+        
 
 def TopMuteFromPf(pf,tag):
     """
@@ -261,7 +281,7 @@ def handle_relative_time(ensemble,arrival_key):
                 d.ator(atime)
     return ensemble
         
-def read_ensembles(db,querydata,control,arrival_key="Ptime"):
+def read_ensembles(querydata,dbname,control,arrival_key="Ptime"):
     """
     Constructs a query from dict created by build_wfquery, runs it 
     on the wf_Seismogram collection of db, and then calls read_ensemble_data 
@@ -280,13 +300,22 @@ def read_ensembles(db,querydata,control,arrival_key="Ptime"):
     The entire run will be aborted with an exception if any live datum 
     is missing the arrival_key field.  (Not relevant, of course, for 
     all data input with relative time already set.)
-    
-    :param db:  database handle
+
     :param querydata:  python dictionary created by build_wfquery (see that function)
+    :param dbname:   name of database from which to read
     :param control:  special class with control parameters created from pf
     :param arrival_key:  key for fetching arrival time using algorithm noted 
       above.  Default is "Ptime"
     """
+    ddist.print("Entered read_ensembles")
+    if "mspass_client" in globals():
+        Client = globals()["mspass_client"]
+    else:
+        message = "FATAL:  distributed client setup has not been initialized\n"
+        message = "mspass_client key is not defined in globals()\n"
+        raise RuntimeError(message)
+    db = Client.get_database(dbname)
+    ddist.print("Test section successful")
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
     if fold<=control.stack_count_cutoff:
@@ -363,7 +392,27 @@ def read_ensembles(db,querydata,control,arrival_key="Ptime"):
                 d.put('ix1',querydata['ix1']) 
                 d.put('ix2',querydata['ix2'])
                 d.put('gridname',control.pseudostation_gridname)
+    ddist.print("Exiting read_ensembles.  Size of returned ensembled=",len(d.member))
     return d
+def save_ensemble(ensemble, dbname, data_tag):
+    """
+    Wrapper function for db.save_data for testing use of globals() 
+    storage of client data.   This function is not a complete implementation 
+    as the completed version should allow sample data to be saved to files.  
+    This forces storage in gridfs - default for db.save_data.
+    """
+    ddist.print("Entered save_ensemble")
+    if "mspass_client" in globals():
+        Client = globals()["mspass_client"]
+    else:
+        message = "FATAL:  distributed client setup has not been initialized\n"
+        message = "mspass_client key is not defined in globals()\n"
+        raise RuntimeError(message)
+    db = Client.get_database(dbname)
+    result = db.save_data(ensemble,data_tag=data_tag)
+    ddist.print("Exiting save_enemble")
+    return result
+    
 
 def pwstack_ensemble_python(*arg):
     """
@@ -436,7 +485,7 @@ def pwstack(db,pf,source_query=None,
     del staids
     # parallel reader - result is a bag of ensembles created from
     # queries held in query
-    mybag = mybag.map(lambda q : read_ensembles(db,q,control))
+    mybag = mybag.map(read_ensembles,db.name,control)
     # Now run pwstack_ensemble - it has a long arg list
     mybag = mybag.map(lambda d : pwstack_ensemble_python(d,
             control.SlowGrid,
@@ -449,5 +498,5 @@ def pwstack(db,pf,source_query=None,
                           control.aperture_taper_length,
                             control.centroid_cutoff,
                                 False,'') )
-    mybag = mybag.map(lambda d : db.save_data(d,data_tag=output_data_tag))
+    mybag = mybag.map(save_ensemble,db.name,output_data_tag)
     mybag.compute()
