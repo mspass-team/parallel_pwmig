@@ -41,8 +41,12 @@ def initialize_workers(mspass_client):
         A full implementation would allow a hostname here.  This uses 
         default which will work for this test.
         """
-        dbclient = DBClient()
-        globals()["mspass_client"] = dbclient
+        try:
+            dbclient = DBClient()
+            globals()["mspass_client"] = dbclient
+        except Exception as ex:
+            ddist.print("Error running init_dbclient - message")
+            ddist.print(ex.message)
         return "mspass_client was set"
 
     scheduler = mspass_client.get_scheduler()
