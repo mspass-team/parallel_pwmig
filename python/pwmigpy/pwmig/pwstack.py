@@ -44,10 +44,11 @@ def initialize_workers(mspass_client):
         try:
             dbclient = DBClient()
             ddist.get_worker().data['mspass_dbclient'] = dbclient
+            return "init_dbclient set value for mspass_dbclient"
         except Exception as ex:
             ddist.print("Error running init_dbclient - message")
-            ddist.print(ex.message)
-        return "mspass_client was set on worker: {}".format(ddist.get_worker().id)
+            ddist.print(ex)
+        return "init_dbclient failed"
 
     scheduler = mspass_client.get_scheduler()
     ddist.print("Type of scheduler returned by get_scheduler=",type(scheduler))
