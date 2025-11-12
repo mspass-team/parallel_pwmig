@@ -20,6 +20,7 @@ from mspasspy.ccore.seismic import SeismogramEnsemble
 #from mspasspy.algorithms.window import TopMute
 from mspasspy.ccore.algorithms.basic import _TopMute
 from mspasspy.ccore.utility import MsPASSError,ErrorSeverity
+from mspasspy.db.client import DBClient
 
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth,kilometers2degrees
@@ -35,16 +36,22 @@ def initialize_workers(mspass_client):
     for a feature that this is testing.  If successful something similar 
     should become part of mspass.
     """
-    def init_dbclient(dbclient):
+    def init_dbclient():
+        """
+        A full implementation would allow a hostname here.  This uses 
+        default which will work for this test.
+        """
+        dbclient = DBClient()
         globals()["mspass_client"] = dbclient
-    # note this won't work with spark
+        return "mspass_client was set"
+
     scheduler = mspass_client.get_scheduler()
-    dbclient = mspass_client.get_database_client()
-    run_output = scheduler.run(init_dbclient,dbclient)
+    ddist.print("Type of scheduler returned by get_scheduler=",type(scheduler))
+    # note this won't work with spark
+    run_output = scheduler.run(init_dbclient)
     # documentation says this should be a dictionary giving results from 
     # each worker - details are not given in the documentation I found
     return run_output
-    
     
         
 
