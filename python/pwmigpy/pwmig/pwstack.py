@@ -43,12 +43,12 @@ def initialize_workers(mspass_client):
         """
         try:
             dbclient = DBClient()
-            ddist.get_worker().data['mspass_dbclient'] = dbclient
-            return "init_dbclient set value for mspass_dbclient"
+            globals()["mspass_client"] = dbclient
+            return "mspass_client was set by init_dbclient"
         except Exception as ex:
             ddist.print("Error running init_dbclient - message")
             ddist.print(ex)
-        return "init_dbclient failed"
+        i   return "init_dbclient failed"
 
     scheduler = mspass_client.get_scheduler()
     ddist.print("Type of scheduler returned by get_scheduler=",type(scheduler))
@@ -320,8 +320,8 @@ def read_ensembles(querydata,dbname,control,arrival_key="Ptime"):
       above.  Default is "Ptime"
     """
     ddist.print("Entered read_ensembles")
-    if "mspass_dbclient" in ddist.get_worker().data:
-        Client = ddist.get_worker().data["mspass_dbclient"]
+    if "mspass_client" in globals():
+        Client = globals()["mspass_client"]
     else:
         message = "FATAL:  distributed client setup has not been initialized\n"
         message = "mspass_client key is not defined in globals()\n"
@@ -414,9 +414,8 @@ def save_ensemble(ensemble, dbname, data_tag):
     This forces storage in gridfs - default for db.save_data.
     """
     ddist.print("Entered save_ensemble")
-    ddist.print("Entered read_ensembles")
-    if "mspass_dbclient" in ddist.get_worker().data:
-        Client = ddist.get_worker().data["mspass_dbclient"]
+    if "mspass_client" in globals():
+        Client = globals()["mspass_client"]
     else:
         message = "FATAL:  distributed client setup has not been initialized\n"
         message = "mspass_client key is not defined in globals()\n"
