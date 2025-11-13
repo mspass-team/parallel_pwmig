@@ -48,7 +48,7 @@ def initialize_workers(mspass_client):
         except Exception as ex:
             ddist.print("Error running init_dbclient - message")
             ddist.print(ex)
-        i   return "init_dbclient failed"
+            return "init_dbclient failed"
 
     scheduler = mspass_client.get_scheduler()
     ddist.print("Type of scheduler returned by get_scheduler=",type(scheduler))
