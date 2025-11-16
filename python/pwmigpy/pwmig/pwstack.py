@@ -21,6 +21,7 @@ from mspasspy.ccore.seismic import SeismogramEnsemble
 from mspasspy.ccore.algorithms.basic import _TopMute
 from mspasspy.ccore.utility import MsPASSError,ErrorSeverity
 from mspasspy.db.client import DBClient
+import mspasspy.db.database
 
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth,kilometers2degrees
@@ -30,35 +31,93 @@ from pwmigpy.ccore.pwmigcore import (RectangularSlownessGrid,
                                    pwstack_ensemble)
 from pwmigpy.db.database import GCLdbread
 
-def initialize_workers(mspass_client):
+def init_dbhandle(dbname=None,key="dbhandle")->str:
     """
-    Test function for initializing dask workers.   This is a workaround 
-    for a feature that this is testing.  If successful something similar 
-    should become part of mspass.
+    Initialize a worker with a private copy of the mspass Database object.
+    
+    A Database object contains connection information to the mongodb
+    database server that must be private to each worker process.   This 
+    handles that issue in a generic way by setting an attribute of the 
+    `mspasspy.db.database` module with the symbol defined by the `key`
+    argument.   That allows a read or write function run in parallel 
+    to fetch the worker specific handle at runtime.   This function 
+    should normally be run first in a cluster initialziation 
+    using the dask distributed client run method.   It can and 
+    should be used inside any read or write function to validate the 
+    handle exists before using it.  Examples are found in readers and 
+    writers in this module.  
+    
+    Note this function is a prototype for use in mspass and will be 
+    depricated when the mspass production version is produced.  
     """
-    def init_dbclient():
-        """
-        A full implementation would allow a hostname here.  This uses 
-        default which will work for this test.
-        """
-        try:
-            dbclient = DBClient()
-            globals()["mspass_client"] = dbclient
-            return "mspass_client was set by init_dbclient"
-        except Exception as ex:
-            ddist.print("Error running init_dbclient - message")
-            ddist.print(ex)
-            return "init_dbclient failed"
+    try:
+        if hasattr(mspasspy.db.database,key):
+            return "init_dbclient:  dbhandle already defined"
+        else:
+            dbclient=DBClient()
+            db = dbclient.get_database(dbname)
+            setattr(mspasspy.db.database,key,db)
+            return "init_dbclient:  created dbhandle attribute"
+        
+    except Exception as ex:
+        ddist.print("Error running init_dbclient - message")
+        ddist.print(ex)
+        return "init_dbclient failed"
+
+def initialize_workers(mspass_client,dbname)->list:
+    """
+    Initialize database handle on all workers.
+    
+    This function does little more than call the run method of 
+    dask distributed client, fetched through the mspass_client.  
+    It returns a list of output strings of the output of running 
+    init_dbclient on each of the workers.   The list then should 
+    always be the same length as the number of workers in the cluster
+    defined by scbeduler retrieved from mspass_client.   Note this function 
+    only works with dask.  
+    
+    :param mspass_client:  instance of `mspasspy.client.Client`
+    :param dbname:  database name (str) to use to construct instance of 
+      `mspasspy.db.database.Database` to be stored on each worker.
+    """
 
     scheduler = mspass_client.get_scheduler()
     ddist.print("Type of scheduler returned by get_scheduler=",type(scheduler))
-    # note this won't work with spark
-    run_output = scheduler.run(init_dbclient)
+    # note this won't work with spark - there is likely an equivalent
+    run_output = scheduler.run(init_dbhandle,dbname)
     # documentation says this should be a dictionary giving results from 
     # each worker - details are not given in the documentation I found
     return run_output
+
+def fetch_worker_dbhandle(dbname):
+    """
+    This function provides a bombproof method for a dask worker to 
+    guaranteed a valid database handle for subsequent read or write 
+    operations.   If a Database object was previously instantiated and 
+    defined for the worker task calling this function it will simply 
+    fetch it from the worker's memory.  If the handle does not exist, 
+    which can happen if a worker dies and is relaunched by dask, the 
+    handle will be recreated by calling the initialziation function 
+    that should normally be used to create it (`init_dbhandle`). 
     
+    Returns a `mspasspy.db.database.Database` object to use for 
+    database access on the worker running the function that would 
+    call this one. 
+    """
+    # always call init_dbhandle because it does nothing if the 
+    # handle already exists
+    init_dbhandle(dbname)
+    if hasattr(mspasspy.db.database,"dbhandle"):
+        return mspasspy.db.database.dbhandle
+    else:
+        message = "fetch_worker_dbhandle:  "
+        message += "could not create a valid Database instance on this worker for dbname="
+        message += dbname
+        raise RuntimeError(message)
+
         
+    
+     
 
 def TopMuteFromPf(pf,tag):
     """
@@ -320,14 +379,8 @@ def read_ensembles(querydata,dbname,control,arrival_key="Ptime"):
       above.  Default is "Ptime"
     """
     ddist.print("Entered read_ensembles")
-    if "mspass_client" in globals():
-        Client = globals()["mspass_client"]
-    else:
-        message = "FATAL:  distributed client setup has not been initialized\n"
-        message = "mspass_client key is not defined in globals()\n"
-        raise RuntimeError(message)
-    db = Client.get_database(dbname)
-    ddist.print("Test section successful")
+    db = fetch_worker_dbhandle(dbname)
+    ddist.print("fetch_worker_dbhandle was successful")
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
     if fold<=control.stack_count_cutoff:
@@ -413,14 +466,7 @@ def save_ensemble(ensemble, dbname, data_tag):
     as the completed version should allow sample data to be saved to files.  
     This forces storage in gridfs - default for db.save_data.
     """
-    ddist.print("Entered save_ensemble")
-    if "mspass_client" in globals():
-        Client = globals()["mspass_client"]
-    else:
-        message = "FATAL:  distributed client setup has not been initialized\n"
-        message = "mspass_client key is not defined in globals()\n"
-        raise RuntimeError(message)
-    db = Client.get_database(dbname)
+    db = fetch_worker_dbhandle(dbname)
     result = db.save_data(ensemble,data_tag=data_tag)
     ddist.print("Exiting save_enemble")
     return result
