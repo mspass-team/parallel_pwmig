@@ -414,13 +414,14 @@ def read_ensembles(querydata,dbname_or_handle,control,arrival_key="Ptime"):
     ddist.print("fetch_worker_dbhandle was successful")
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
+    print("DEBUG:  fold=",fold)
     if fold<=control.stack_count_cutoff:
         d=SeismogramEnsemble()
     else:
         query=querydata['query']
         n=db.wf_Seismogram.count_documents(query)
         #debug
-        #print(query,n)
+        print(query,n)
         if n==0:
             # This shouldn't ever really be executed unless stack_count_cutoff 
             # is 0 or the query is botched
