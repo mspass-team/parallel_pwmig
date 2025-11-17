@@ -23,6 +23,7 @@ from mspasspy.ccore.utility import MsPASSError,ErrorSeverity
 from mspasspy.util.seismic import number_live
 from mspasspy.db.client import DBClient
 import mspasspy.db.database
+from mspasspy.db.normalize import ObjectIdMatcher,normalize
 
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth,kilometers2degrees
@@ -374,7 +375,12 @@ def handle_relative_time(ensemble,arrival_key):
                 d.ator(atime)
     return ensemble
         
-def read_ensembles(querydata,dbname_or_handle,control,arrival_key="Ptime"):
+def read_ensembles(querydata,
+                   dbname_or_handle,
+                       control,
+                           source_matcher,
+                               site_matcher,
+                                   arrival_key="Ptime"):
     """
     Constructs a query from dict created by build_wfquery, runs it 
     on the wf_Seismogram collection of db, and then calls read_ensemble_data 
@@ -427,9 +433,10 @@ def read_ensembles(querydata,dbname_or_handle,control,arrival_key="Ptime"):
             # Note control.data_tag can be a None type here - see 
             # control object constructor
             d=db.read_data(cursor,collection='wf_Seismogram',
-                                    normalize=['source','site'],
                                     data_tag=control.data_tag)
             cursor.close()
+            d = normalize(d,source_matcher)
+            d = normalize(d,site_matcher)
         if len(d.member) > 0:
             d = handle_relative_time(d,arrival_key)
             # When the ensemble is not empty we have to compute the 
@@ -564,6 +571,22 @@ def pwstack(db,pf,source_query=None,
         source_id_list.append(id)
     if verbose:
         print("Number of sources ids used to drive this run=",len(source_id_list))
+    if source_collection=="source":
+        srcmatcher=ObjectIdMatcher(db,collection="source",
+                                   attributes_to_load=['_id','lat','lon','depth','time'],
+                            )
+    elif source_collection=="telecluster":
+        srcmatcher=ObjectIdMatcher(db,collection="telecluster",
+                                   attributes_to_load=['_id','hypocentroid'],
+                            )
+    else:
+        message = "pwstack:   Illegal value for source_collection={}".format(source_collection)
+        message += "Must be either source or telecluster"
+        raise ValueError(message)
+    sitematcher=ObjectIdMatcher(db,
+                                    collection="site",
+                                        attributes_to_load=["_id","lat","lon","elev"],
+                                )
     cutoff=control.aperture.maximum_cutoff()
     staids=list()
     for i in range(control.stagrid.n1):
@@ -602,7 +625,7 @@ def pwstack(db,pf,source_query=None,
         if verbose:
             print("Starting main processing using serial algorithm")
         for q in allqueries:
-            d = read_ensembles(q, db, control)
+            d = read_ensembles(q, db, control,srcmatcher,sitematcher)
             d = pwstack_ensemble(d,
                 control.SlowGrid,
                   control.data_mute,
@@ -635,7 +658,7 @@ def pwstack(db,pf,source_query=None,
         del staids
         # parallel reader - result is a bag of ensembles created from
         # queries held in query
-        mybag = mybag.map(read_ensembles,db.name,control)
+        mybag = mybag.map(read_ensembles,db.name,control,srcmatcher,sitematcher)
         # Now run pwstack_ensemble - it has a long arg list
         mybag = mybag.map(pwstack_ensemble_python,
                 control.SlowGrid,
