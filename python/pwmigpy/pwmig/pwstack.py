@@ -239,31 +239,26 @@ def site_query(db,lat,lon,ix1,ix2,cutoff,units='km'):
 
     """
     if units=='radians':
-        rcutoff = cutoff  # query we use requires distance in radians
+        rcutoff = math.degrees(cutoff)
+        rcutoff = rcutoff*111120.0
     elif units=='km':
-        rcutoff = cutoff/6371.0  # might want to use a more precise earth radius in km here
+        rcutoff = cutoff*1000.0
     elif units=='degrees':
-        rcutoff = math.radians(cutoff)
+        rcutoff = cutoff*111120.0
 
-    #query = { "coordinates" : SON( [ ("$nearSphere" , [ lon , lat ]),
-    #             ("$maxDistance" , rcutoff) ] )
-    #       }
-    query = { "coordinates" : {
-          "$geoWithin" : {
-              "$centerSphere" : [ [lon, lat],rcutoff]
-           }
-         }
+    query = { "location" : {
+      "$nearSphere" : {
+        "$geometry" : {"type": "Point", "coordinates" : [lon,lat]},
+        "$maxDistance" : rcutoff,
         }
-    n=db.site.count_documents(query)
-    # debug
-    #print(lon,lat,ix1,ix2,n)
+      }
+    }
 
     idlist=list()
-    if n>0:
-        cursor=db.site.find(query)
-        for doc in cursor:
-            thisid=doc['_id']
-            idlist.append(thisid)
+    cursor=db.site.find(query)
+    for doc in cursor:
+        thisid=doc['_id']
+        idlist.append(thisid)
     result=dict()
     result['idlist']=idlist
     result['lat']=lat
@@ -271,6 +266,7 @@ def site_query(db,lat,lon,ix1,ix2,cutoff,units='km'):
     result['ix1']=ix1
     result['ix2']=ix2
     return result
+
 
 def build_wfquery(sid,rids,source_collection="telecluster"):
     """
