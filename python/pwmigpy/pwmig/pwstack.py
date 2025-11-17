@@ -427,6 +427,7 @@ def read_ensembles(querydata,dbname,control,arrival_key="Ptime"):
             d=db.read_data(cursor,collection='wf_Seismogram',
                                     normalize=['source','site'],
                                     data_tag=control.data_tag)
+            cursor.close()
         if len(d.member) > 0:
             d = handle_relative_time(d,arrival_key)
             # When the ensemble is not empty we have to compute the 
