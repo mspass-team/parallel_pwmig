@@ -540,13 +540,21 @@ def pwstack(db,pf,source_query=None,
                                          verbose=False):
     # the control structure pretty much encapsulates the args for
     # this driver function
+    if verbose:
+        print("Start pwstack processing of this dataset")
+        print("Using collection=",source_collection," for source data")
+        if source_query is not None:
+            print("Source collection will be limited by the following query:")
+            print(source_query)
+        print("Attempting to build control structure from pf data input")
     control=pwstack_control(db,pf,slowness_grid_tag,data_mute_tag,
                     stack_mute_tag,save_history,instance)
     if source_query==None:
         base_query={}
     else:
         base_query=source_query
-    base_cursor=db.source.find(base_query)
+    dbcol = db[source_collection]
+    base_cursor=dbcol.find(base_query)
     # We make an assumption here that the array of source ids created
     # here is tiny and not a memory problem.  Unambiguously true when
     # source side stack was previously completed.
@@ -554,6 +562,8 @@ def pwstack(db,pf,source_query=None,
     for doc in base_cursor:
         id=doc['_id']
         source_id_list.append(id)
+    if verbose:
+        print("Number of sources ids used to drive this run=",len(source_id_list))
     cutoff=control.aperture.maximum_cutoff()
     staids=list()
     for i in range(control.stagrid.n1):
