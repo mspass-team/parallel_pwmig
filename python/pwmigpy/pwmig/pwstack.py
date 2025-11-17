@@ -378,7 +378,7 @@ def handle_relative_time(ensemble,arrival_key):
                 d.ator(atime)
     return ensemble
         
-def read_ensembles(querydata,dbname,control,arrival_key="Ptime"):
+def read_ensembles(querydata,dbname_or_handle,control,arrival_key="Ptime"):
     """
     Constructs a query from dict created by build_wfquery, runs it 
     on the wf_Seismogram collection of db, and then calls read_ensemble_data 
@@ -405,7 +405,12 @@ def read_ensembles(querydata,dbname,control,arrival_key="Ptime"):
       above.  Default is "Ptime"
     """
     ddist.print("Entered read_ensembles")
-    db = fetch_worker_dbhandle(dbname)
+    if isinstance(dbname_or_handle,str):
+        db = fetch_worker_dbhandle(dbname_or_handle)
+    else:
+        # assume in this case this is a mspasspy.db.database.Database object
+        # let it error out if used incorrectly
+        db = dbname_or_handle
     ddist.print("fetch_worker_dbhandle was successful")
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
@@ -590,7 +595,7 @@ def pwstack(db,pf,source_query=None,
         if verbose:
             print("Starting main processing using serial algorithm")
         for q in allqueries:
-            d = read_ensembles(db,q,control)
+            d = read_ensembles(q, db, control)
             d = pwstack_ensemble(d,
                 control.SlowGrid,
                   control.data_mute,
