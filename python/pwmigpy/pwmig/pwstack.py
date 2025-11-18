@@ -391,7 +391,7 @@ def read_ensembles(querydata,
     data can be in either UTC or relative time.  If the data read are 
     found to be in relative time this program assumes it has already been 
     shifted to what I call the "arrival time reference" that normally means 
-    t0 is the P arrival time which is the maximum of the spike in the 
+    t0 is the P arrival time which is the maximum of the spike in t                                    normalize=['source','site'],he 
     data at the arrival time.   If the data have a UTC time standard 
     the function will attempt to extract a time from each member's 
     metadata container with that key and then call the ator method of 
@@ -606,8 +606,9 @@ def pwstack(db,pf,source_query=None,
             ids=site_query(db,lat,lon,i,j,cutoff)
             staids.append(ids)
     
-    allqueries=list()
+    
     for sid in source_id_list:
+        allqueries=list()
         for rids in staids:
             # build_wfquery returns a dict with lat, lon,
             # i, j, and a query string  That is a simple
@@ -618,63 +619,64 @@ def pwstack(db,pf,source_query=None,
             # debug
             #print(q['ix1'],q['ix2'],q['fold'])
             allqueries.append(q)
-    if verbose:
-        print("Number of ensembles to processed=",len(allqueries))
-        
-    if run_serial:
         if verbose:
-            print("Starting main processing using serial algorithm")
-        for q in allqueries:
-            d = read_ensembles(q, db, control,srcmatcher,sitematcher)
-            d = pwstack_ensemble(d,
-                control.SlowGrid,
-                  control.data_mute,
-                    control.stack_mute,
-                      control.stack_count_cutoff,
-                        control.tstart,
-                          control.tend,
-                            control.aperture,
-                              control.aperture_taper_length,
-                                control.centroid_cutoff,
-                                    False,'')
-
-            # TODO;  Maybe should repeat logic of parallel version to 
-            # set dfile for file storage.   Here we use default which we
-            # assumes uses a uuid generator to create a random file name.
-            sdret = db.save_data(d,
-                                 collection="wf_Seismogram",
-                                     storage_mode=storage_mode,
-                                         dir=outdir,
-                                             data_tag=output_data_tag)
+            print("Number of ensembles to processed=",len(allqueries))
+            
+        if run_serial:
             if verbose:
-                print(sdret)
-    else:
-        
-        if verbose:
-            print("Starting main processing using parallel algorithm")
-        mybag=dask.bag.from_sequence(allqueries)
-        # These can now be deleted to save memory
-        del source_id_list
-        del staids
-        # parallel reader - result is a bag of ensembles created from
-        # queries held in query
-        mybag = mybag.map(read_ensembles,db.name,control,srcmatcher,sitematcher)
-        # Now run pwstack_ensemble - it has a long arg list
-        mybag = mybag.map(pwstack_ensemble_python,
-                control.SlowGrid,
-                  control.data_mute,
-                    control.stack_mute,
-                      control.stack_count_cutoff,
-                        control.tstart,
-                          control.tend,
-                            control.aperture,
-                              control.aperture_taper_length,
-                                control.centroid_cutoff,
-                                    save_history,'')
-        mybag = mybag.map(save_ensemble_parallel,
-                          db.name,
-                              output_data_tag,
-                                  storage_mode=storage_mode,
-                                      outdir=outdir,
-                            )
-        mybag.compute()
+                print("Starting main processing using serial algorithm")
+            for q in allqueries:
+                d = read_ensembles(q, db, control,srcmatcher,sitematcher)
+                d = pwstack_ensemble(d,
+                    control.SlowGrid,
+                      control.data_mute,
+                        control.stack_mute,
+                          control.stack_count_cutoff,
+                            control.tstart,
+                              control.tend,
+                                control.aperture,
+                                  control.aperture_taper_length,
+                                    control.centroid_cutoff,
+                                        False,'')
+    
+                # TODO;  Maybe should repeat logic of parallel version to 
+                # set dfile for file storage.   Here we use default which we
+                # assumes uses a uuid generator to create a random file name.
+                sdret = db.save_data(d,
+                                     collection="wf_Seismogram",
+                                         storage_mode=storage_mode,
+                                             dir=outdir,
+                                                 data_tag=output_data_tag)
+                if verbose:
+                    print(sdret)
+        else:
+            
+            if verbose:
+                print("Starting main processing using parallel algorithm")
+            mybag=dask.bag.from_sequence(allqueries)
+            # These can now be deleted to save memory
+            del source_id_list
+            del staids
+            # parallel reader - result is a bag of ensembles created from
+            # queries held in query
+            mybag = mybag.map(read_ensembles,db.name,control,srcmatcher,sitematcher)
+            # Now run pwstack_ensemble - it has a long arg list
+            mybag = mybag.map(pwstack_ensemble_python,
+                    control.SlowGrid,
+                      control.data_mute,
+                        control.stack_mute,
+                          control.stack_count_cutoff,
+                            control.tstart,
+                              control.tend,
+                                control.aperture,
+                                  control.aperture_taper_length,
+                                    control.centroid_cutoff,
+                                        save_history,'')
+            mybag = mybag.map(save_ensemble_parallel,
+                              db.name,
+                                  output_data_tag,
+                                      storage_mode=storage_mode,
+                                          outdir=outdir,
+                                )
+            mybag.compute()
+        print("Finished processing data for source with id=",sid)
