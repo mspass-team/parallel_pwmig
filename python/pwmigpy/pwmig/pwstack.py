@@ -416,8 +416,8 @@ def read_ensembles(querydata,
     ddist.print("fetch_worker_dbhandle was successful")
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
-    print("DEBUG:  fold=",fold)
     if fold<=control.stack_count_cutoff:
+        ddist.print("Handling output from document with fold less than cutoff")
         d=SeismogramEnsemble()
     else:
         query=querydata['query']
@@ -431,6 +431,7 @@ def read_ensembles(querydata,
             ddist.print(query)
             d=SeismogramEnsemble()
         else:
+            ddist.print("DEBUG: calling find with this query:  ",query)
             cursor=db.wf_Seismogram.find(query)
             # Note control.data_tag can be a None type here - see 
             # control object constructor
