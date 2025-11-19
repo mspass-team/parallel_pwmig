@@ -423,10 +423,12 @@ def read_ensembles(querydata,
         query=querydata['query']
         n=db.wf_Seismogram.count_documents(query)
         #debug
-        print(query,n)
+        #rint(query,n)
         if n==0:
             # This shouldn't ever really be executed unless stack_count_cutoff 
             # is 0 or the query is botched
+            ddist.print("DEBUG: this query produced no data: ")
+            ddist.print(query)
             d=SeismogramEnsemble()
         else:
             cursor=db.wf_Seismogram.find(query)
@@ -435,8 +437,19 @@ def read_ensembles(querydata,
             d=db.read_data(cursor,collection='wf_Seismogram',
                                     data_tag=control.data_tag)
             cursor.close()
-            d = normalize(d,source_matcher)
-            d = normalize(d,site_matcher)
+            # this is subject to change as this is a workaround for a bug
+            # in mspass.  Eventually ensemble elog should always be empty 
+            # and any read errors get posted member components
+            if d.dead():
+                ddist.print("Read faile for ensemble with query: ",query)
+                elog = d.elog.get_error_log()
+                for e in elog:
+                    ddist.print(e.message)
+            else:
+                ddist.print("Running normalize")
+                d = normalize(d,source_matcher)
+                d = normalize(d,site_matcher)
+                ddist.print("Number live after normalize=",number_live(d))
         if len(d.member) > 0:
             d = handle_relative_time(d,arrival_key)
             # When the ensemble is not empty we have to compute the 
