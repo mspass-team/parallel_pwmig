@@ -451,6 +451,14 @@ def read_ensembles(querydata,
                 d = normalize(d,source_matcher)
                 d = normalize(d,site_matcher)
                 ddist.print("Number live after normalize=",number_live(d))
+                ddist.print("Error messages")
+                # this is for debugging - it could genrate a lot of output 
+                for x in d.member:
+                    if x.elog.size()>0:
+                        eloglist = x.elog.get_error_log()
+                        for l in eloglist:
+                            ddist.print(l.message)
+                            
         if len(d.member) > 0:
             d = handle_relative_time(d,arrival_key)
             # When the ensemble is not empty we have to compute the 
