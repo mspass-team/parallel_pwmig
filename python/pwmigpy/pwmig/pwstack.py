@@ -437,12 +437,17 @@ def read_ensembles(querydata,
             # control object constructor
             d=db.read_data(cursor,collection='wf_Seismogram',
                                     data_tag=control.data_tag)
+            if d.elog.size()>0:
+                ddist("Reader failed and posted these error messages to ensemble")
+                for e in d.elog.get_error_log():
+                    ddist.print(e.message)
             cursor.close()
             # this is subject to change as this is a workaround for a bug
             # in mspass.  Eventually ensemble elog should always be empty 
             # and any read errors get posted member components
             if d.dead():
-                ddist.print("Read faile for ensemble with query: ",query)
+                ddist.print("Read failed for ensemble with query: ",query)
+                ddist.print("Error logs from members")
                 elog = d.elog.get_error_log()
                 for e in elog:
                     ddist.print(e.message)
