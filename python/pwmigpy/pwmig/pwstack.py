@@ -453,8 +453,8 @@ def read_ensembles(querydata,
                     ddist.print(e.message)
             else:
                 ddist.print("Running normalize")
-                d = normalize(d,source_matcher)
-                d = normalize(d,site_matcher)
+                d = normalize(d,source_matcher,handles_ensembles=False)
+                d = normalize(d,site_matcher,handles_ensembles=False)
                 ddist.print("Number live after normalize=",number_live(d))
                 ddist.print("Error messages")
                 # this is for debugging - it could genrate a lot of output 
