@@ -84,7 +84,7 @@ def initialize_workers(mspass_client,dbname)->list:
     """
 
     scheduler = mspass_client.get_scheduler()
-    ddist.print("Type of scheduler returned by get_scheduler=",type(scheduler))
+    #ddist.print("Type of scheduler returned by get_scheduler=",type(scheduler))
     # note this won't work with spark - there is likely an equivalent
     run_output = scheduler.run(init_dbhandle,dbname)
     # documentation says this should be a dictionary giving results from 
@@ -406,7 +406,7 @@ def read_ensembles(querydata,
     :param arrival_key:  key for fetching arrival time using algorithm noted 
       above.  Default is "Ptime"
     """
-    ddist.print("Entered read_ensembles")
+    #ddist.print("Entered read_ensembles")
     if isinstance(dbname_or_handle,str):
         db = fetch_worker_dbhandle(dbname_or_handle)
     else:
@@ -417,7 +417,7 @@ def read_ensembles(querydata,
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
     if fold<=control.stack_count_cutoff:
-        ddist.print("Handling output from document with fold less than cutoff")
+        #ddist.print("Handling output from document with fold less than cutoff")
         d=SeismogramEnsemble()
     else:
         query=querydata['query']
@@ -427,42 +427,42 @@ def read_ensembles(querydata,
         if n==0:
             # This shouldn't ever really be executed unless stack_count_cutoff 
             # is 0 or the query is botched
-            ddist.print("DEBUG: this query produced no data: ")
-            ddist.print(query)
+            #ddist.print("DEBUG: this query produced no data: ")
+            #ddist.print(query)
             d=SeismogramEnsemble()
         else:
-            ddist.print("DEBUG: calling find with this query:  ",query)
+            #ddist.print("DEBUG: calling find with this query:  ",query)
             cursor=db.wf_Seismogram.find(query)
             # Note control.data_tag can be a None type here - see 
             # control object constructor
             d=db.read_data(cursor,collection='wf_Seismogram',
                                     data_tag=control.data_tag)
-            if d.elog.size()>0:
-                ddist("Reader failed and posted these error messages to ensemble")
-                for e in d.elog.get_error_log():
-                    ddist.print(e.message)
+            #if d.elog.size()>0:
+            #    ddist("Reader failed and posted these error messages to ensemble")
+            #    for e in d.elog.get_error_log():
+            #        ddist.print(e.message)
             cursor.close()
             # this is subject to change as this is a workaround for a bug
             # in mspass.  Eventually ensemble elog should always be empty 
             # and any read errors get posted member components
-            if d.dead():
-                ddist.print("Read failed for ensemble with query: ",query)
-                ddist.print("Error logs from members")
-                elog = d.elog.get_error_log()
-                for e in elog:
-                    ddist.print(e.message)
-            else:
-                ddist.print("Running normalize")
-                d = normalize(d,source_matcher,handles_ensembles=False)
-                d = normalize(d,site_matcher,handles_ensembles=False)
-                ddist.print("Number live after normalize=",number_live(d))
-                ddist.print("Error messages")
-                # this is for debugging - it could genrate a lot of output 
-                for x in d.member:
-                    if x.elog.size()>0:
-                        eloglist = x.elog.get_error_log()
-                        for l in eloglist:
-                            ddist.print(l.message)
+            #if d.dead():
+            #    ddist.print("Read failed for ensemble with query: ",query)
+            #    ddist.print("Error logs from members")
+            #    elog = d.elog.get_error_log()
+            #    for e in elog:
+            #        ddist.print(e.message)
+            #else:
+            #ddist.print("Running normalize")
+            d = normalize(d,source_matcher,handles_ensembles=False)
+            d = normalize(d,site_matcher,handles_ensembles=False)
+            #ddist.print("Number live after normalize=",number_live(d))
+            #ddist.print("Error messages")
+            # this is for debugging - it could genrate a lot of output 
+            #for x in d.member:
+            #    if x.elog.size()>0:
+            #        eloglist = x.elog.get_error_log()
+            #        for l in eloglist:
+            #            ddist.print(l.message)
                             
         if len(d.member) > 0:
             d = handle_relative_time(d,arrival_key)
@@ -520,7 +520,7 @@ def read_ensembles(querydata,
                 d.put('ix1',querydata['ix1']) 
                 d.put('ix2',querydata['ix2'])
                 d.put('gridname',control.pseudostation_gridname)
-    ddist.print("Exiting read_ensembles.  Size of returned ensembled=",len(d.member))
+    #ddist.print("Exiting read_ensembles.  Size of returned ensembled=",len(d.member))
     return d
 def save_ensemble_parallel(ens, dbname, data_tag, storage_mode="gridfs", outdir=None):
     """
