@@ -269,7 +269,7 @@ def site_query(db,lat,lon,ix1,ix2,cutoff,units='km'):
     return result
 
 
-def build_wfquery(sid,rids,source_collection="telecluster"):
+def build_wfquery(sid,rids,source_collection="telecluster",base_query=None):
     """
     This function is more or less a reformatter.  It expands each
     source_id by a set of queries for a pseudostation grid
@@ -295,6 +295,11 @@ def build_wfquery(sid,rids,source_collection="telecluster"):
       the source data
     :param source_collection:  name of MongoDB collection to fetch 
       source documents.   
+    :param base_query:   additional add clause for query to be generated.  
+      Assumed to be a standard MongoDB query that does not reference
+      "site_id" or the source collection id derived from source_collection 
+      (currently that means either "source_id" or "telecluster_id").  
+      If None (default) 
     :return: a list of dict data expanded from sid with one entry
       per pseudostation defined in ridlist.  The contents of each dict
       are copies of lat, lon, ix1, and ix2 plus  'query' attribute that
@@ -304,7 +309,10 @@ def build_wfquery(sid,rids,source_collection="telecluster"):
       and/or irregular station geometry.
     """
     allqdata = rids.copy()
-    q=dict()
+    if base_query is None:
+        q=dict()
+    else:
+        q = base_query.copy()
     idname = source_collection + "_id"
     q[idname] = { '$eq' : sid }
     idlist = rids['idlist']
@@ -562,6 +570,7 @@ def pwstack_ensemble_python(*arg):
     return pwstack_ensemble(*arg)
 
 def pwstack(db,pf,source_query=None,
+    wf_query=None,
       source_collection="telecluster",
         slowness_grid_tag='RectangularSlownessGrid',
             data_mute_tag='Data_Top_Mute',
@@ -642,7 +651,10 @@ def pwstack(db,pf,source_query=None,
             # construct so don't think it will be a bottleneck.
             # May have been better done with a dataframe
             #q=dask.delayed(build_wfquery)(sid,rids)
-            q=build_wfquery(sid,rids,source_collection=source_collection)
+            q=build_wfquery(sid,
+                        rids,
+                            source_collection=source_collection,
+                                base_query=wf_query)
             # debug
             #print(q['ix1'],q['ix2'],q['fold'])
             allqueries.append(q)
