@@ -260,6 +260,7 @@ def site_query(db,lat,lon,ix1,ix2,cutoff,units='km'):
     for doc in cursor:
         thisid=doc['_id']
         idlist.append(thisid)
+    cursor.close()
     result=dict()
     result['idlist']=idlist
     result['lat']=lat
@@ -612,6 +613,7 @@ def pwstack(db,pf,source_query=None,
     for doc in base_cursor:
         id=doc['_id']
         source_id_list.append(id)
+    base_cursor.close()
     if verbose:
         print("Number of sources ids used to drive this run=",len(source_id_list))
     if source_collection=="source":
