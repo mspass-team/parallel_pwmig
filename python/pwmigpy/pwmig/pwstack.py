@@ -421,7 +421,7 @@ def read_ensembles(querydata,
         # assume in this case this is a mspasspy.db.database.Database object
         # let it error out if used incorrectly
         db = dbname_or_handle
-    ddist.print("fetch_worker_dbhandle was successful")
+    ddist.print("fetch_worker_dbhandle was successful in reader")
     ddist.print("db client id=",id(db.client))
     worker = ddist.get_worker()
     ddist.print("getworker().address=",worker.address)
@@ -545,6 +545,10 @@ def save_ensemble_parallel(ens, dbname, data_tag, storage_mode="gridfs", outdir=
     or telecluster_id. 
     """
     db = fetch_worker_dbhandle(dbname)
+    ddist.print("fetch_worker_dbhandle was successful in writer")
+    ddist.print("db client id=",id(db.client))
+    worker = ddist.get_worker()
+    ddist.print("getworker().address=",worker.address)
     if storage_mode=="file":
         if outdir:
             odir=outdir
@@ -696,9 +700,6 @@ def pwstack(db,pf,source_query=None,
             if verbose:
                 print("Starting main processing using parallel algorithm")
             mybag=dask.bag.from_sequence(allqueries)
-            # These can now be deleted to save memory
-            del source_id_list
-            del staids
             # parallel reader - result is a bag of ensembles created from
             # queries held in query
             mybag = mybag.map(read_ensembles,db.name,control,srcmatcher,sitematcher)
@@ -722,3 +723,5 @@ def pwstack(db,pf,source_query=None,
                                 )
             mybag.compute()
         print("Finished processing data for source with id=",sid)
+        # temporary for debug - remove when finished - this processes only first sid
+        break
