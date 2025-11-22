@@ -422,6 +422,9 @@ def read_ensembles(querydata,
         # let it error out if used incorrectly
         db = dbname_or_handle
     ddist.print("fetch_worker_dbhandle was successful")
+    ddist.print("db client id=",id(db.client))
+    worker = ddist.get_worker()
+    ddist.print("getworker().address=",worker.address)
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
     if fold<=control.stack_count_cutoff:
