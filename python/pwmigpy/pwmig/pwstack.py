@@ -33,89 +33,141 @@ from pwmigpy.ccore.pwmigcore import (RectangularSlownessGrid,
                                    pwstack_ensemble)
 from pwmigpy.db.database import GCLdbread
 
-def init_dbhandle(dbname=None,key="dbhandle")->str:
-    """
-    Initialize a worker with a private copy of the mspass Database object.
-    
-    A Database object contains connection information to the mongodb
-    database server that must be private to each worker process.   This 
-    handles that issue in a generic way by setting an attribute of the 
-    `mspasspy.db.database` module with the symbol defined by the `key`
-    argument.   That allows a read or write function run in parallel 
-    to fetch the worker specific handle at runtime.   This function 
-    should normally be run first in a cluster initialziation 
-    using the dask distributed client run method.   It can and 
-    should be used inside any read or write function to validate the 
-    handle exists before using it.  Examples are found in readers and 
-    writers in this module.  
-    
-    Note this function is a prototype for use in mspass and will be 
-    depricated when the mspass production version is produced.  
-    """
-    try:
-        if hasattr(mspasspy.db.database,key):
-            return "init_dbclient:  dbhandle already defined"
-        else:
-            dbclient=DBClient()
-            db = dbclient.get_database(dbname)
-            setattr(mspasspy.db.database,key,db)
-            return "init_dbclient:  created dbhandle attribute"
-        
-    except Exception as ex:
-        ddist.print("Error running init_dbclient - message")
-        ddist.print(ex)
-        return "init_dbclient failed"
 
-def initialize_workers(mspass_client,dbname)->list:
-    """
-    Initialize database handle on all workers.
-    
-    This function does little more than call the run method of 
-    dask distributed client, fetched through the mspass_client.  
-    It returns a list of output strings of the output of running 
-    init_dbclient on each of the workers.   The list then should 
-    always be the same length as the number of workers in the cluster
-    defined by scbeduler retrieved from mspass_client.   Note this function 
-    only works with dask.  
-    
-    :param mspass_client:  instance of `mspasspy.client.Client`
-    :param dbname:  database name (str) to use to construct instance of 
-      `mspasspy.db.database.Database` to be stored on each worker.
-    """
+# this section is based on suggestion from Gemini 
 
-    scheduler = mspass_client.get_scheduler()
-    #ddist.print("Type of scheduler returned by get_scheduler=",type(scheduler))
-    # note this won't work with spark - there is likely an equivalent
-    run_output = scheduler.run(init_dbhandle,dbname)
-    # documentation says this should be a dictionary giving results from 
-    # each worker - details are not given in the documentation I found
-    return run_output
+CONNECTION_URI = "mongodb://localhost:27017/"
+
+# Global storage for the worker's client
+GLOBAL_MONGO_CLIENT = {} 
+
+def initialize_worker(dask_scheduler_info):
+    """Called once per worker when it starts."""
+    # Create the client and store it in the worker's memory
+    GLOBAL_MONGO_CLIENT['client'] = DBClient(CONNECTION_URI)
+    print(f"Worker initialized client: {GLOBAL_MONGO_CLIENT['client']}")
+
+def finalize_worker():
+    """Called once per worker when it shuts down."""
+    # Explicitly close the client
+    if 'client' in GLOBAL_MONGO_CLIENT:
+        GLOBAL_MONGO_CLIENT['client'].close()
+        print("Worker closed client.")
+
+# Dask Task Function (called many times) - from Gemini - retained commented out for reference only
+# def process_data_on_worker(doc):
+#     """Accesses the shared client created during initialization."""
+#     client = GLOBAL_MONGO_CLIENT['client']
+#     db = client['my_database']
+    
+#     # ... perform operations here ...
+#     return db['source_collection'].find_one({"_id": doc['id']})
+
+def initialize_workers(client):
+    """
+    From gemini - call from workflow script to initialize the workers 
+    with these callback functions.   client is assumed to be a dask 
+    distributed client 
+    """
+    client.register_worker_callbacks(
+    setup=initialize_worker, 
+    teardown=finalize_worker
+    )
 
 def fetch_worker_dbhandle(dbname):
     """
-    This function provides a bombproof method for a dask worker to 
-    guaranteed a valid database handle for subsequent read or write 
-    operations.   If a Database object was previously instantiated and 
-    defined for the worker task calling this function it will simply 
-    fetch it from the worker's memory.  If the handle does not exist, 
-    which can happen if a worker dies and is relaunched by dask, the 
-    handle will be recreated by calling the initialziation function 
-    that should normally be used to create it (`init_dbhandle`). 
-    
-    Returns a `mspasspy.db.database.Database` object to use for 
-    database access on the worker running the function that would 
-    call this one. 
+    Similar to previous approach but fetches a Database instance. 
+    I think this will be reasonably efficient if the client caches 
+    each database to which it has connections.   
     """
-    # always call init_dbhandle because it does nothing if the 
-    # handle already exists
-    init_dbhandle(dbname)
-    if hasattr(mspasspy.db.database,"dbhandle"):
-        return mspasspy.db.database.dbhandle
-    else:
-        message = "fetch_worker_dbhandle:  "
-        message += "could not create a valid Database instance on this worker for dbname="
-        message += dbname
-        raise RuntimeError(message)
+    client = GLOBAL_MONGO_CLIENT['client']
+    db = client.get_database(dbname)
+    return db
+
+
+# def init_dbhandle(dbname=None,key="dbhandle")->str:
+#     """
+#     Initialize a worker with a private copy of the mspass Database object.
+    
+#     A Database object contains connection information to the mongodb
+#     database server that must be private to each worker process.   This 
+#     handles that issue in a generic way by setting an attribute of the 
+#     `mspasspy.db.database` module with the symbol defined by the `key`
+#     argument.   That allows a read or write function run in parallel 
+#     to fetch the worker specific handle at runtime.   This function 
+#     should normally be run first in a cluster initialziation 
+#     using the dask distributed client run method.   It can and 
+#     should be used inside any read or write function to validate the 
+#     handle exists before using it.  Examples are found in readers and 
+#     writers in this module.  
+    
+#     Note this function is a prototype for use in mspass and will be 
+#     depricated when the mspass production version is produced.  
+#     """
+#     try:
+#         if hasattr(mspasspy.db.database,key):
+#             return "init_dbclient:  dbhandle already defined"
+#         else:
+#             dbclient=DBClient()
+#             db = dbclient.get_database(dbname)
+#             setattr(mspasspy.db.database,key,db)
+#             return "init_dbclient:  created dbhandle attribute"
+        
+#     except Exception as ex:
+#         ddist.print("Error running init_dbclient - message")
+#         ddist.print(ex)
+#         return "init_dbclient failed"
+
+# def initialize_workers(mspass_client,dbname)->list:
+#     """
+#     Initialize database handle on all workers.
+    
+#     This function does little more than call the run method of 
+#     dask distributed client, fetched through the mspass_client.  
+#     It returns a list of output strings of the output of running 
+#     init_dbclient on each of the workers.   The list then should 
+#     always be the same length as the number of workers in the cluster
+#     defined by scbeduler retrieved from mspass_client.   Note this function 
+#     only works with dask.  
+    
+#     :param mspass_client:  instance of `mspasspy.client.Client`
+#     :param dbname:  database name (str) to use to construct instance of 
+#       `mspasspy.db.database.Database` to be stored on each worker.
+#     """
+
+#     scheduler = mspass_client.get_scheduler()
+#     #ddist.print("Type of scheduler returned by get_scheduler=",type(scheduler))
+#     # note this won't work with spark - there is likely an equivalent
+#     run_output = scheduler.run(init_dbhandle,dbname)
+#     # documentation says this should be a dictionary giving results from 
+#     # each worker - details are not given in the documentation I found
+#     return run_output
+
+# def fetch_worker_dbhandle(dbname):
+#     """
+#     This function provides a bombproof method for a dask worker to 
+#     guaranteed a valid database handle for subsequent read or write 
+#     operations.   If a Database object was previously instantiated and 
+#     defined for the worker task calling this function it will simply 
+#     fetch it from the worker's memory.  If the handle does not exist, 
+#     which can happen if a worker dies and is relaunched by dask, the 
+#     handle will be recreated by calling the initialziation function 
+#     that should normally be used to create it (`init_dbhandle`). 
+    
+#     Returns a `mspasspy.db.database.Database` object to use for 
+#     database access on the worker running the function that would 
+#     call this one. 
+#     """
+#     # always call init_dbhandle because it does nothing if the 
+#     # handle already exists
+#     init_dbhandle(dbname)
+#     if hasattr(mspasspy.db.database,"dbhandle"):
+#         return mspasspy.db.database.dbhandle
+#     else:
+#         message = "fetch_worker_dbhandle:  "
+#         message += "could not create a valid Database instance on this worker for dbname="
+#         message += dbname
+#        raise RuntimeError(message)
 
         
     
