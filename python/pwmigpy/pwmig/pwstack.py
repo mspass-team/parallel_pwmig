@@ -9,8 +9,10 @@ is highly parallelizable and preferable to be  run parallel.
 """
 import dask
 import math
+from distributed.diagnostics.plugin import WorkerPlugin
 # for parallell debugging - remove for production tests
 import dask.distributed as ddist
+
 
 
 from mspasspy.ccore.seismic import SeismogramEnsemble
@@ -33,56 +35,38 @@ from pwmigpy.ccore.pwmigcore import (RectangularSlownessGrid,
                                    pwstack_ensemble)
 from pwmigpy.db.database import GCLdbread
 
+class MongoDBWorker(WorkerPlugin):
+    def __init__(self,dbname,url="mongodb://localhost:27017/",dbclient_key="dbclient"):
+        self.dbname = dbname
+        self.connection_url=url
+        self.dbclient_key=dbclient_key
+        print("MongoDBWorker constructor set dbname=",self.dbname," and connection_url=",self.connection_url)
+    def setup(self,worker):
+        print("MongoDBWworker debug testing - running setup method")
+        if self.connection_url is None:
+            dbclient=DBClient()
+        else:
+            dbclient = DBClient(self.connection_url)
+        worker.data[self.dbclient_key] = dbclient
+        
 
-# this section is based on suggestion from Gemini 
+    def teardown(self,worker):
+        print("MongoDBWorker debug testing:  running teardown method")
+        # from online example - might be able to use dictionary syntax
+        dbclient = worker.data.get(self.dbclient_key)
+        if dbclient:
+            dbclient.close()
+        print("teardown method finished successfully")
 
-CONNECTION_URI = "mongodb://localhost:27017/"
 
-# Global storage for the worker's client
-GLOBAL_MONGO_CLIENT = {} 
-
-def initialize_worker(dask_scheduler_info):
-    """Called once per worker when it starts."""
-    # Create the client and store it in the worker's memory
-    GLOBAL_MONGO_CLIENT['client'] = DBClient(CONNECTION_URI)
-    print(f"Worker initialized client: {GLOBAL_MONGO_CLIENT['client']}")
-
-def finalize_worker():
-    """Called once per worker when it shuts down."""
-    # Explicitly close the client
-    if 'client' in GLOBAL_MONGO_CLIENT:
-        GLOBAL_MONGO_CLIENT['client'].close()
-        print("Worker closed client.")
-
-# Dask Task Function (called many times) - from Gemini - retained commented out for reference only
-# def process_data_on_worker(doc):
-#     """Accesses the shared client created during initialization."""
-#     client = GLOBAL_MONGO_CLIENT['client']
-#     db = client['my_database']
-    
-#     # ... perform operations here ...
-#     return db['source_collection'].find_one({"_id": doc['id']})
-
-def initialize_workers(client):
-    """
-    From gemini - call from workflow script to initialize the workers 
-    with these callback functions.   client is assumed to be a dask 
-    distributed client 
-    """
-    client.register_worker_callbacks(
-    setup=initialize_worker, 
-    teardown=finalize_worker
-    )
 
 def fetch_worker_dbhandle(dbname):
     """
-    Similar to previous approach but fetches a Database instance. 
-    I think this will be reasonably efficient if the client caches 
-    each database to which it has connections.   
+    Thin wrapper that may not be necessary or even desirable.  
     """
-    client = GLOBAL_MONGO_CLIENT['client']
-    db = client.get_database(dbname)
-    return db
+    worker = ddist.get_worker()
+    dbclient = worker.data["dbclient"]
+    return dbclient.get_database(dbname)
 
 
 # def init_dbhandle(dbname=None,key="dbhandle")->str:
@@ -469,7 +453,9 @@ def read_ensembles(querydata,
     """
     #ddist.print("Entered read_ensembles")
     if isinstance(dbname_or_handle,str):
-        db = fetch_worker_dbhandle(dbname_or_handle)
+        worker = ddist.get_worker()
+        dbclient = worker.data["dbclient"]
+        db = dbclient.get_database(dbname_or_handle)
     else:
         # assume in this case this is a mspasspy.db.database.Database object
         # let it error out if used incorrectly
@@ -597,7 +583,9 @@ def save_ensemble_parallel(ens, dbname, data_tag, storage_mode="gridfs", outdir=
     The dfile name is always set with a unique name derived from source_id 
     or telecluster_id. 
     """
-    db = fetch_worker_dbhandle(dbname)
+    worker = ddist.get_worker()
+    dbclient = worker.data["dbclient"]
+    db = dbclient.get_database(dbname)
     ddist.print("fetch_worker_dbhandle was successful in writer")
     ddist.print("db client id=",id(db.client))
     worker = ddist.get_worker()
