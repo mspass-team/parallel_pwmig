@@ -36,17 +36,18 @@ from pwmigpy.ccore.pwmigcore import (RectangularSlownessGrid,
 from pwmigpy.db.database import GCLdbread
 
 class MongoDBWorker(WorkerPlugin):
-    def __init__(self,dbname,url="mongodb://localhost:27017/",dbclient_key="dbclient"):
+    def __init__(self,dbname,url="mongodb://localhost:27017/",dbclient_key="dbclient",maxPoolSize=20):
         self.dbname = dbname
         self.connection_url=url
         self.dbclient_key=dbclient_key
+        self.maxPoolSize=maxPoolSize
         print("MongoDBWorker constructor set dbname=",self.dbname," and connection_url=",self.connection_url)
     def setup(self,worker):
         print("MongoDBWworker debug testing - running setup method")
         if self.connection_url is None:
             dbclient=DBClient()
         else:
-            dbclient = DBClient(self.connection_url)
+            dbclient = DBClient(self.connection_url,maxPoolSize=self.maxPoolSize)
         worker.data[self.dbclient_key] = dbclient
         
 
