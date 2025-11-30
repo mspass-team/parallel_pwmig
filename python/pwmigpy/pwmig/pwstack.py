@@ -12,6 +12,7 @@ import math
 from distributed.diagnostics.plugin import WorkerPlugin
 # for parallell debugging - remove for production tests
 import dask.distributed as ddist
+import gc
 
 
 
@@ -572,6 +573,7 @@ def read_ensembles(querydata,
                 d.put('ix2',querydata['ix2'])
                 d.put('gridname',control.pseudostation_gridname)
     #ddist.print("Exiting read_ensembles.  Size of returned ensembled=",len(d.member))
+    gc.collect()
     return d
 def save_ensemble_parallel(ens, dbname, data_tag, storage_mode="gridfs", outdir=None):
     """
@@ -608,6 +610,7 @@ def save_ensemble_parallel(ens, dbname, data_tag, storage_mode="gridfs", outdir=
                                  dir=odir,
                                      dfile=dfile,
                                          data_tag=data_tag)
+    gc.collect()
     return sdret
     
 
