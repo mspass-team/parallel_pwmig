@@ -14,7 +14,6 @@ from distributed.diagnostics.plugin import WorkerPlugin
 import dask.distributed as ddist
 
 
-
 from mspasspy.ccore.seismic import SeismogramEnsemble
 # We have a python wrapper for the C++ implementation of top mutes (_TopMute)
 # but here we need the direct C++ call because we are calling the
@@ -24,7 +23,6 @@ from mspasspy.ccore.algorithms.basic import _TopMute
 from mspasspy.ccore.utility import MsPASSError,ErrorSeverity
 from mspasspy.util.seismic import number_live
 from mspasspy.db.client import DBClient
-import mspasspy.db.database
 from mspasspy.db.normalize import ObjectIdMatcher,normalize
 
 from obspy.taup import TauPyModel
@@ -35,23 +33,30 @@ from pwmigpy.ccore.pwmigcore import (RectangularSlownessGrid,
                                    pwstack_ensemble)
 from pwmigpy.db.database import GCLdbread
 
-class MongoDBWorker(WorkerPlugin):
-    def __init__(self,dbname,url="mongodb://localhost:27017/",dbclient_key="dbclient",maxPoolSize=20,maxIdleTimeMS=100000):
-        self.dbname = dbname
-        self.connection_url=url
-        self.dbclient_key=dbclient_key
-        self.maxPoolSize=maxPoolSize
-        print("MongoDBWorker constructor set dbname=",self.dbname," and connection_url=",self.connection_url)
-    def setup(self,worker):
-        print("MongoDBWworker debug testing - running setup method")
-        if self.connection_url is None:
-            dbclient=DBClient()
-        else:
-            dbclient = DBClient(self.connection_url,maxPoolSize=self.maxPoolSize)
-        worker.data[self.dbclient_key] = dbclient
-        
 
-    def teardown(self,worker):
+class MongoDBWorker(WorkerPlugin):
+    """
+    Dask worker plugin to manage MongoDB client per worker.
+    Creates a DBClient instance for each worker and stores it in worker.data.
+    If a worker restarts, dask will recreate the client automatically.
+    """
+    def __init__(self, dbname, url="mongodb://localhost:27017/", dbclient_key="dbclient"):
+        self.dbname = dbname
+        self.connection_url = url
+        self.dbclient_key = dbclient_key
+        print("MongoDBWorker constructor set dbname=", self.dbname, " and connection_url=", self.connection_url)
+
+    def setup(self, worker):
+        """Called when worker starts - create DBClient for this worker"""
+        print("MongoDBWorker debug testing - running setup method")
+        if self.connection_url is None:
+            dbclient = DBClient()
+        else:
+            dbclient = DBClient(self.connection_url)
+        worker.data[self.dbclient_key] = dbclient
+
+    def teardown(self, worker):
+        """Called when worker shuts down - cleanup if needed"""
         print("MongoDBWorker debug testing:  running teardown method")
         # from online example - might be able to use dictionary syntax
         dbclient = worker.data.get(self.dbclient_key)
@@ -69,93 +74,7 @@ def fetch_worker_dbhandle(dbname):
     dbclient = worker.data["dbclient"]
     return dbclient.get_database(dbname)
 
-
-# def init_dbhandle(dbname=None,key="dbhandle")->str:
-#     """
-#     Initialize a worker with a private copy of the mspass Database object.
-    
-#     A Database object contains connection information to the mongodb
-#     database server that must be private to each worker process.   This 
-#     handles that issue in a generic way by setting an attribute of the 
-#     `mspasspy.db.database` module with the symbol defined by the `key`
-#     argument.   That allows a read or write function run in parallel 
-#     to fetch the worker specific handle at runtime.   This function 
-#     should normally be run first in a cluster initialziation 
-#     using the dask distributed client run method.   It can and 
-#     should be used inside any read or write function to validate the 
-#     handle exists before using it.  Examples are found in readers and 
-#     writers in this module.  
-    
-#     Note this function is a prototype for use in mspass and will be 
-#     depricated when the mspass production version is produced.  
-#     """
-#     try:
-#         if hasattr(mspasspy.db.database,key):
-#             return "init_dbclient:  dbhandle already defined"
-#         else:
-#             dbclient=DBClient()
-#             db = dbclient.get_database(dbname)
-#             setattr(mspasspy.db.database,key,db)
-#             return "init_dbclient:  created dbhandle attribute"
-        
-#     except Exception as ex:
-#         ddist.print("Error running init_dbclient - message")
-#         ddist.print(ex)
-#         return "init_dbclient failed"
-
-# def initialize_workers(mspass_client,dbname)->list:
-#     """
-#     Initialize database handle on all workers.
-    
-#     This function does little more than call the run method of 
-#     dask distributed client, fetched through the mspass_client.  
-#     It returns a list of output strings of the output of running 
-#     init_dbclient on each of the workers.   The list then should 
-#     always be the same length as the number of workers in the cluster
-#     defined by scbeduler retrieved from mspass_client.   Note this function 
-#     only works with dask.  
-    
-#     :param mspass_client:  instance of `mspasspy.client.Client`
-#     :param dbname:  database name (str) to use to construct instance of 
-#       `mspasspy.db.database.Database` to be stored on each worker.
-#     """
-
-#     scheduler = mspass_client.get_scheduler()
-#     #ddist.print("Type of scheduler returned by get_scheduler=",type(scheduler))
-#     # note this won't work with spark - there is likely an equivalent
-#     run_output = scheduler.run(init_dbhandle,dbname)
-#     # documentation says this should be a dictionary giving results from 
-#     # each worker - details are not given in the documentation I found
-#     return run_output
-
-# def fetch_worker_dbhandle(dbname):
-#     """
-#     This function provides a bombproof method for a dask worker to 
-#     guaranteed a valid database handle for subsequent read or write 
-#     operations.   If a Database object was previously instantiated and 
-#     defined for the worker task calling this function it will simply 
-#     fetch it from the worker's memory.  If the handle does not exist, 
-#     which can happen if a worker dies and is relaunched by dask, the 
-#     handle will be recreated by calling the initialziation function 
-#     that should normally be used to create it (`init_dbhandle`). 
-    
-#     Returns a `mspasspy.db.database.Database` object to use for 
-#     database access on the worker running the function that would 
-#     call this one. 
-#     """
-#     # always call init_dbhandle because it does nothing if the 
-#     # handle already exists
-#     init_dbhandle(dbname)
-#     if hasattr(mspasspy.db.database,"dbhandle"):
-#         return mspasspy.db.database.dbhandle
-#     else:
-#         message = "fetch_worker_dbhandle:  "
-#         message += "could not create a valid Database instance on this worker for dbname="
-#         message += dbname
-#        raise RuntimeError(message)
-
-        
-    
+           
      
 
 def TopMuteFromPf(pf,tag):
@@ -452,19 +371,14 @@ def read_ensembles(querydata,
     :param arrival_key:  key for fetching arrival time using algorithm noted 
       above.  Default is "Ptime"
     """
-    #ddist.print("Entered read_ensembles")
-    if isinstance(dbname_or_handle,str):
-        worker = ddist.get_worker()
-        dbclient = worker.data["dbclient"]
-        db = dbclient.get_database(dbname_or_handle)
-    else:
-        # assume in this case this is a mspasspy.db.database.Database object
-        # let it error out if used incorrectly
-        db = dbname_or_handle
-    ddist.print("fetch_worker_dbhandle was successful in reader")
-    ddist.print("db client id=",id(db.client))
+    # this may not work correctly if run serial
     worker = ddist.get_worker()
-    ddist.print("getworker().address=",worker.address)
+    dbclient = worker.data["dbclient"]
+    db = dbclient.get_database(dbname_or_handle)
+    #ddist.print("fetch_worker_dbhandle was successful in reader")
+    #ddist.print("db client id=",id(db.client))
+    worker = ddist.get_worker()
+    #ddist.print("getworker().address=",worker.address)
     # don't even issue a query if the fold is too low
     fold=querydata['fold']
     if fold<=control.stack_count_cutoff:
@@ -587,10 +501,10 @@ def save_ensemble_parallel(ens, dbname, data_tag, storage_mode="gridfs", outdir=
     worker = ddist.get_worker()
     dbclient = worker.data["dbclient"]
     db = dbclient.get_database(dbname)
-    ddist.print("fetch_worker_dbhandle was successful in writer")
-    ddist.print("db client id=",id(db.client))
+    #ddist.print("fetch_worker_dbhandle was successful in writer")
+    #ddist.print("db client id=",id(db.client))
     worker = ddist.get_worker()
-    ddist.print("getworker().address=",worker.address)
+    #ddist.print("getworker().address=",worker.address)
     if storage_mode=="file":
         if outdir:
             odir=outdir
