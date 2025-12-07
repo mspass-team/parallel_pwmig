@@ -157,7 +157,8 @@ class pwstack_control:
         self.model = TauPyModel(model=modelname)
         # These parameters define thing things outside pwstack_ensemble
         # but are important control
-        self.db=db
+        # keep only dbname - caching the Database object creates serialization issues
+        self.dbname=db.name
         gridname=pf.get_string("pseudostation_grid_name")
         self.pseudostation_gridname=gridname
         # We query by name and object type - this may require additional
