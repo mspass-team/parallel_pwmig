@@ -24,6 +24,7 @@ from mspasspy.ccore.utility import MsPASSError,ErrorSeverity
 from mspasspy.util.seismic import number_live
 from mspasspy.db.client import DBClient
 from mspasspy.db.normalize import ObjectIdMatcher,normalize
+from mspasspy.db.database import Database
 
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth,kilometers2degrees
@@ -64,18 +65,6 @@ class MongoDBWorker(WorkerPlugin):
             dbclient.close()
         print("teardown method finished successfully")
 
-
-
-def fetch_worker_dbhandle(dbname):
-    """
-    Thin wrapper that may not be necessary or even desirable.  
-    """
-    worker = ddist.get_worker()
-    dbclient = worker.data["dbclient"]
-    return dbclient.get_database(dbname)
-
-           
-     
 
 def TopMuteFromPf(pf,tag):
     """
@@ -372,41 +361,33 @@ def read_ensembles(querydata,
     :param arrival_key:  key for fetching arrival time using algorithm noted 
       above.  Default is "Ptime"
     """
-    # this may not work correctly if run serial
+    if isinstance(dbname_or_handle,str):
+        worker = ddist.get_worker()
+        dbclient = worker.data["dbclient"]
+        db = dbclient.get_database(dbname_or_handle)
+    elif isinstance(dbname_or_handle,Database):
+        db = dbname_or_handle
+    else:
+        message = "read_ensembles:   illegal type for arg1={}\n".format(type(dbname_or_handle))
+        message += "Must be str defining a db name or a Database object"
+        raise ValueError(message)
     worker = ddist.get_worker()
-    dbclient = worker.data["dbclient"]
-    db = dbclient.get_database(dbname_or_handle)
-    #ddist.print("fetch_worker_dbhandle was successful in reader")
-    #ddist.print("db client id=",id(db.client))
-    worker = ddist.get_worker()
-    #ddist.print("getworker().address=",worker.address)
-    # don't even issue a query if the fold is too low
     fold=querydata['fold']
     if fold<=control.stack_count_cutoff:
-        #ddist.print("Handling output from document with fold less than cutoff")
         d=SeismogramEnsemble()
     else:
         query=querydata['query']
         n=db.wf_Seismogram.count_documents(query)
-        #debug
-        #rint(query,n)
         if n==0:
             # This shouldn't ever really be executed unless stack_count_cutoff 
             # is 0 or the query is botched
-            #ddist.print("DEBUG: this query produced no data: ")
-            #ddist.print(query)
             d=SeismogramEnsemble()
         else:
-            #ddist.print("DEBUG: calling find with this query:  ",query)
             cursor=db.wf_Seismogram.find(query)
             # Note control.data_tag can be a None type here - see 
             # control object constructor
             d=db.read_data(cursor,collection='wf_Seismogram',
                                     data_tag=control.data_tag)
-            #if d.elog.size()>0:
-            #    ddist("Reader failed and posted these error messages to ensemble")
-            #    for e in d.elog.get_error_log():
-            #        ddist.print(e.message)
             cursor.close()
             # this is subject to change as this is a workaround for a bug
             # in mspass.  Eventually ensemble elog should always be empty 
@@ -421,14 +402,6 @@ def read_ensembles(querydata,
             #ddist.print("Running normalize")
             d = normalize(d,source_matcher,handles_ensembles=False)
             d = normalize(d,site_matcher,handles_ensembles=False)
-            #ddist.print("Number live after normalize=",number_live(d))
-            #ddist.print("Error messages")
-            # this is for debugging - it could genrate a lot of output 
-            #for x in d.member:
-            #    if x.elog.size()>0:
-            #        eloglist = x.elog.get_error_log()
-            #        for l in eloglist:
-            #            ddist.print(l.message)
                             
         if len(d.member) > 0:
             d = handle_relative_time(d,arrival_key)
@@ -486,7 +459,6 @@ def read_ensembles(querydata,
                 d.put('ix1',querydata['ix1']) 
                 d.put('ix2',querydata['ix2'])
                 d.put('gridname',control.pseudostation_gridname)
-    #ddist.print("Exiting read_ensembles.  Size of returned ensembled=",len(d.member))
     return d
 def save_ensemble_parallel(ens, dbname, data_tag, storage_mode="gridfs", outdir=None):
     """
@@ -502,10 +474,7 @@ def save_ensemble_parallel(ens, dbname, data_tag, storage_mode="gridfs", outdir=
     worker = ddist.get_worker()
     dbclient = worker.data["dbclient"]
     db = dbclient.get_database(dbname)
-    #ddist.print("fetch_worker_dbhandle was successful in writer")
-    #ddist.print("db client id=",id(db.client))
     worker = ddist.get_worker()
-    #ddist.print("getworker().address=",worker.address)
     if storage_mode=="file":
         if outdir:
             odir=outdir
@@ -630,8 +599,8 @@ def pwstack(db,pf,source_query=None,
             if verbose:
                 print("Starting main processing using serial algorithm")
             for q in allqueries:
-                d = read_ensembles(q, db, control,srcmatcher,sitematcher)
-                d = pwstack_ensemble(d,
+                ens = read_ensembles(q, db, control,srcmatcher,sitematcher)
+                ens = pwstack_ensemble(ens,
                     control.SlowGrid,
                       control.data_mute,
                         control.stack_mute,
@@ -643,20 +612,31 @@ def pwstack(db,pf,source_query=None,
                                     control.centroid_cutoff,
                                         False,'')
     
-                # TODO;  Maybe should repeat logic of parallel version to 
-                # set dfile for file storage.   Here we use default which we
-                # assumes uses a uuid generator to create a random file name.
-                sdret = db.save_data(d,
+                # This repeats code in save_ensemble_parallel and maybe 
+                # should be a function called both places
+                if storage_mode=="file":
+                    if outdir:
+                        odir=outdir
+                    else:
+                        odir="."
+                    if "source_id" in ens:
+                        dfile = str(ens["source_id"]) + ".dat"
+                    elif "telecluster_id" in ens:
+                        dfile = str(ens["telecluster_id"]) + ".dat"
+                    else:
+                        dfile = "pwstack_output.dat"
+                sdret = db.save_data(ens,
                                      collection="wf_Seismogram",
                                          storage_mode=storage_mode,
-                                             dir=outdir,
+                                             dir=odir,
+                                                dfile=dfile,
                                                  data_tag=output_data_tag)
                 if verbose:
                     print(sdret)
         else:
             
             if verbose:
-                print("Starting main processing using parallel algorithm")
+                print("Starting main processing using parallel algorithm for source_id=",sid)
             mybag=dask.bag.from_sequence(allqueries)
             # parallel reader - result is a bag of ensembles created from
             # queries held in query
@@ -680,6 +660,5 @@ def pwstack(db,pf,source_query=None,
                                           outdir=outdir,
                                 )
             mybag.compute()
-        print("Finished processing data for source with id=",sid)
-        # temporary for debug - remove when finished - this processes only first sid
-        break
+        if verbose:
+            print("Finished processing data for source with id=",sid)
