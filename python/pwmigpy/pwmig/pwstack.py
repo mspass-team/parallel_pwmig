@@ -696,6 +696,8 @@ def pwstack(db,pf,source_query=None,
                                           output_data_tag,
                                             storage_mode=storage_mode,
                                               outdir=outdir)
+                if verbose:
+                    print(sdret)
         else:
             
             if verbose:
@@ -722,6 +724,7 @@ def pwstack(db,pf,source_query=None,
                                       storage_mode=storage_mode,
                                           outdir=outdir,
                                 )
-            mybag.compute()
+            sdret = mybag.compute()
         if verbose:
             print("Finished processing data for source with id=",sid)
+            print("Number of ensembled processed=",len(sdret))
