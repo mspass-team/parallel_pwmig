@@ -476,7 +476,7 @@ def read_ensemble(querydata,
                     source_depth_in_km=srcdata['source_depth'],
                     distance_in_degree=dist,phase_list=['P']
                     )
-                if len(arrivals>0):
+                if len(arrivals)>0:
                     ray_param=arrivals[0].ray_param
                     umag=ray_param/Rearth    # need slowness in s/km but ray_param is s/radian
                     baz=georesult[2]   # The obspy function seems to return back azimuth
