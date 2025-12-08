@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-This file contains the python wrapper version of the pwstack
-program.  pwstack originally a c++ executable.  This set of functions
-allow pwstack to be implemented in a mspass workflow.  The
-algorthms are dogmatically parallel because it is known this program
-is highly parallelizable and preferable to be  run parallel.
+This file contains the python implementation of the pwstack
+algorithm.  pwstack was originally a c++ executable.  This set of functions
+allow pwstack to be implemented in a mspass workflow.  The file first 
+defines a set of functions and a python required by the primary driver 
+function called pwstack.  The pwstack function is at the end of the file.   
+To run the pwstack function requires these preliminary steps:
+    1.  Instiate an instance of a mspass database client
+    2.  Loading a parameter file (".pf") to create and instance of an
+        AntelopePf object.   The pf defines the main control inputs 
+        for pwstack.
+    3.  Parallel workflows need to create and install the MongoDBWorker 
+        plugin.   The details of that will evolve as something similar 
+        to MongodBWorker inside this module is in the process of being 
+        implemented in MsPASS.  
+
+Author:  Gary L. Pavlis with contributions from Chenbo Yin and Ian Wang.
 """
 import dask
 import math
@@ -40,6 +51,11 @@ class MongoDBWorker(WorkerPlugin):
     Dask worker plugin to manage MongoDB client per worker.
     Creates a DBClient instance for each worker and stores it in worker.data.
     If a worker restarts, dask will recreate the client automatically.
+    
+    This class is a prototype used during development to fix a major issue 
+    in MsPASS resolved through this mechanism.   This class should be removed 
+    and the approach it uses altered when the MsPASS code base is modified 
+    using the same model.  
     """
     def __init__(self, dbname, url="mongodb://localhost:27017/", dbclient_key="dbclient"):
         self.dbname = dbname
@@ -49,7 +65,7 @@ class MongoDBWorker(WorkerPlugin):
 
     def setup(self, worker):
         """Called when worker starts - create DBClient for this worker"""
-        print("MongoDBWorker debug testing - running setup method")
+        #print("MongoDBWorker debug testing - running setup method")
         if self.connection_url is None:
             dbclient = DBClient()
         else:
@@ -58,12 +74,12 @@ class MongoDBWorker(WorkerPlugin):
 
     def teardown(self, worker):
         """Called when worker shuts down - cleanup if needed"""
-        print("MongoDBWorker debug testing:  running teardown method")
+        #print("MongoDBWorker debug testing:  running teardown method")
         # from online example - might be able to use dictionary syntax
         dbclient = worker.data.get(self.dbclient_key)
         if dbclient:
             dbclient.close()
-        print("teardown method finished successfully")
+        #print("teardown method finished successfully")
 
 
 def TopMuteFromPf(pf,tag):
@@ -103,7 +119,10 @@ class pwstack_control:
     This class is used to contain all the control parameters that
     define processing with the pwstack algorithm.   The constructor
     is pretty much like the initialization section of the old
-    pwstack main.
+    pwstack main.  Most content is loaded from the AntelopePf object 
+    passed as the required arg pf.   The kwarg keys with "tag" in the name 
+    are all optional name tags for pf components where optional names 
+    could be helpful.   
     """
     def __init__(self,db,pf,slowness_grid_tag='RectangularSlownessGrid',
             data_mute_tag='data_top_mute',
@@ -163,11 +182,11 @@ class pwstack_control:
         doc=db.GCLfielddata.find_one(query)
         self.stagrid=GCLdbread(db,doc)
 
-def site_query(db,lat,lon,ix1,ix2,cutoff,units='km'):
+def site_query(db,lat,lon,ix1,ix2,cutoff,units='km')->dict:
     """
-    This function is called in in parallel to do a query to the site
-    collection for stations with a center at lat, lon within
-    a distance of cutoff (in degrees).
+    This function creates a dictionary that is a query for MongoDB 
+    to find site documents inside a circle with radius `cutoff` 
+    centered at defined geograpic coordinates (lat,lon)
 
     :param db:  Database class (top level MongoDB handle)
     :param lat:  latitude (in degrees) of center point
@@ -330,7 +349,7 @@ def handle_relative_time(ensemble,arrival_key):
                 d.ator(atime)
     return ensemble
         
-def read_ensembles(querydata,
+def read_ensemble(querydata,
                    dbname_or_handle,
                        control,
                            source_matcher,
@@ -354,10 +373,26 @@ def read_ensembles(querydata,
     The entire run will be aborted with an exception if any live datum 
     is missing the arrival_key field.  (Not relevant, of course, for 
     all data input with relative time already set.)
+    
+    The function always performs normalization internally for site and 
+    source data.   These are applied through the required `source_matcher` 
+    and `site_matcher` agruments.   Most applications will use source 
+    info that comes from the "telecluster" application instead of the 
+    MsPASS "source" collection because real data always requires source 
+    side stacking to producde reasonable results.  The only exception is 
+    simulation data where full fold with controlled noise properties is
+    possible,  
 
     :param querydata:  python dictionary created by build_wfquery (see that function)
-    :param dbname:   name of database from which to read
+    :param dbname_or_handle:   For normal parallel processing this is expected 
+      to be the name of the database to access.  For serial processing it 
+      must be an actual instance of a MsPASS Database object.  The function 
+      will raise a ValueError exception if is is anything else. 
     :param control:  special class with control parameters created from pf
+    :param source_matcher:   Concrete implementation of a 
+      `mspasspy.db.normalize.BasicMatcher` used to load source metadata.  
+    :param site_matcher:  Concrete implemation of a 
+      'mspasspy.db.normalize.BasicMatcher' to load receiver side metadata. 
     :param arrival_key:  key for fetching arrival time using algorithm noted 
       above.  Default is "Ptime"
     """
@@ -460,21 +495,51 @@ def read_ensembles(querydata,
                 d.put('ix2',querydata['ix2'])
                 d.put('gridname',control.pseudostation_gridname)
     return d
-def save_ensemble_parallel(ens, dbname, data_tag, storage_mode="gridfs", outdir=None):
+def save_ensemble(ens, dbname_or_handle, data_tag, storage_mode="gridfs", outdir=None):
     """
-    Special function to save ensembles returned by pwstack
+    Writer function for ensembles created by pwstack.   It is largely a 
+    wrapper around db.save_data to handle:
+        1.  Handling details of how sample data are organized in files 
+            or gridfs.
+        2.  Work on this algorithm led to a discovery of a probolem with 
+            earlier implementations of how Database object were handled 
+            in MsPASS.   (db clients were being serialized that caused a 
+            rsrouce leak of open db connections.)   This code uses a 
+            prototype approach that may be replaced by a more generic 
+            form under development for MsPASS.
     
-    This function is largely a thin wrapper to handle parallel io.  It 
-    handles fetching the database handle for a worker and setting an 
-    appropriate file path setup when writing the sample data to files.  
-    Note if outdir is not defined it is set to the current directory. 
-    The dfile name is always set with a unique name derived from source_id 
-    or telecluster_id. 
+    :param: ens:  data to be saved
+    :param dbname_or_handle:   For serial proclessing this arg must 
+      contain an instance of a Database object.  For parallel processing 
+      it MUST contain a string defining the database name to use.   
+      Note MonogDBWorker must have been used previously to instantiate a 
+      client on each worker when running this algorithm in parallel or it 
+      will fail on the first call to the function.
+    :param data_tag:  required unique data tag for output waveform documents. 
+    :param storage_mode:   Must be either "gridfs" (default) or "file".  
+      "file" is recommended but if so you should always define outdir 
+      as the default writes files to the current directory.   When 
+      set to "file" the file names are dogmatically derived from 
+      the id of the source document.  That means the file name is usually 
+      the str value of the "telecluster_id" ObjectId of the pseudosource 
+      for this ensemble.  It will be the comparable value of "source_id" if 
+      that is defined.  If neither is defined the sample data will be written 
+      to "pwstack_output.dat".   Output is always as raw binary doubles.
+    :param outdir:  optional string defining a valid directory in which to 
+      save sample data files.   Ignored when storage_mode is set to gridfs. 
+      Default is None which causes files to be written to the currenct directory. 
+      Otherwise the value is passed to Database.save_data which currently, 
+      at least, will create the directory if it does not yet exist. 
     """
-    worker = ddist.get_worker()
-    dbclient = worker.data["dbclient"]
-    db = dbclient.get_database(dbname)
-    worker = ddist.get_worker()
+    if isinstance(dbname_or_handle,str):
+        worker = ddist.get_worker()
+        dbclient = worker.data["dbclient"]
+        db = dbclient.get_database(dbname_or_handle)
+    elif isinstance(dbname_or_handle,Database):
+        db = dbname_or_handle
+    else:
+        message = "read_ensembles:   illegal type for arg1={}\n".format(type(dbname_or_handle))
+        message += "Must be str defining a db name or a Database object"
     if storage_mode=="file":
         if outdir:
             odir=outdir
@@ -514,6 +579,18 @@ def pwstack(db,pf,source_query=None,
                                  output_data_tag='test_pwstack_output',
                                      run_serial=False,
                                          verbose=False):
+    """
+    Driver function for the pwstack algorithm.
+    
+    Runs the pwstack algorithn on all data in wf_Seismogram in the 
+    Database defined by db (an instance of the MsPASS Database classs).
+    The algorithm is an outer loop over source ids with an internal 
+    loop over a 2d grid of points created in a control structure 
+    instantiated from the input parameter pf.   The inputs are complex 
+    and interrelated.  See the user manual page under construction for 
+    details on how to run this function that acts like may be 
+    eventually wrapped around a main to be CLI application.   
+    """
     # the control structure pretty much encapsulates the args for
     # this driver function
     if verbose:
@@ -599,7 +676,7 @@ def pwstack(db,pf,source_query=None,
             if verbose:
                 print("Starting main processing using serial algorithm")
             for q in allqueries:
-                ens = read_ensembles(q, db, control,srcmatcher,sitematcher)
+                ens = read_ensemble(q, db, control,srcmatcher,sitematcher)
                 ens = pwstack_ensemble(ens,
                     control.SlowGrid,
                       control.data_mute,
@@ -614,25 +691,11 @@ def pwstack(db,pf,source_query=None,
     
                 # This repeats code in save_ensemble_parallel and maybe 
                 # should be a function called both places
-                if storage_mode=="file":
-                    if outdir:
-                        odir=outdir
-                    else:
-                        odir="."
-                    if "source_id" in ens:
-                        dfile = str(ens["source_id"]) + ".dat"
-                    elif "telecluster_id" in ens:
-                        dfile = str(ens["telecluster_id"]) + ".dat"
-                    else:
-                        dfile = "pwstack_output.dat"
-                sdret = db.save_data(ens,
-                                     collection="wf_Seismogram",
-                                         storage_mode=storage_mode,
-                                             dir=odir,
-                                                dfile=dfile,
-                                                 data_tag=output_data_tag)
-                if verbose:
-                    print(sdret)
+                sdret = save_ensemble(ens,
+                                        db,
+                                          output_data_tag,
+                                            storage_mode=storage_mode,
+                                              outdir=outdir)
         else:
             
             if verbose:
@@ -640,7 +703,7 @@ def pwstack(db,pf,source_query=None,
             mybag=dask.bag.from_sequence(allqueries)
             # parallel reader - result is a bag of ensembles created from
             # queries held in query
-            mybag = mybag.map(read_ensembles,db.name,control,srcmatcher,sitematcher)
+            mybag = mybag.map(read_ensemble,db.name,control,srcmatcher,sitematcher)
             # Now run pwstack_ensemble - it has a long arg list
             mybag = mybag.map(pwstack_ensemble_python,
                     control.SlowGrid,
@@ -653,7 +716,7 @@ def pwstack(db,pf,source_query=None,
                                   control.aperture_taper_length,
                                     control.centroid_cutoff,
                                         save_history,'')
-            mybag = mybag.map(save_ensemble_parallel,
+            mybag = mybag.map(save_ensemble,
                               db.name,
                                   output_data_tag,
                                       storage_mode=storage_mode,
