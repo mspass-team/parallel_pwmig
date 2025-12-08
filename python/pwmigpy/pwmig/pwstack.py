@@ -476,24 +476,30 @@ def read_ensemble(querydata,
                     source_depth_in_km=srcdata['source_depth'],
                     distance_in_degree=dist,phase_list=['P']
                     )
-                ray_param=arrivals[0].ray_param
-                umag=ray_param/Rearth    # need slowness in s/km but ray_param is s/radian
-                baz=georesult[2]   # The obspy function seems to return back azimuth
-                az=baz+180.0
-                # az can be > 360 here but all known trig function algs handl this automatically
-                ux=umag*math.sin(math.radians(az))
-                uy=umag*math.cos(math.radians(az))
-                d.put('ux0', ux)
-                d.put('uy0',uy)
-                d.put('pseudostation_lat',pslat)
-                d.put('pseudostation_lon',pslon) 
-                # this more obscure name is needed as an alias by pwstack_ensemble
-                # we save the longer tag for less obscure database tags
-                d.put('lat0',pslat)
-                d.put('lon0',pslon) 
-                d.put('ix1',querydata['ix1']) 
-                d.put('ix2',querydata['ix2'])
-                d.put('gridname',control.pseudostation_gridname)
+                if len(arrivals>0):
+                    ray_param=arrivals[0].ray_param
+                    umag=ray_param/Rearth    # need slowness in s/km but ray_param is s/radian
+                    baz=georesult[2]   # The obspy function seems to return back azimuth
+                    az=baz+180.0
+                    # az can be > 360 here but all known trig function algs handl this automatically
+                    ux=umag*math.sin(math.radians(az))
+                    uy=umag*math.cos(math.radians(az))
+                    d.put('ux0', ux)
+                    d.put('uy0',uy)
+                    d.put('pseudostation_lat',pslat)
+                    d.put('pseudostation_lon',pslon) 
+                    # this more obscure name is needed as an alias by pwstack_ensemble
+                    # we save the longer tag for less obscure database tags
+                    d.put('lat0',pslat)
+                    d.put('lon0',pslon) 
+                    d.put('ix1',querydata['ix1']) 
+                    d.put('ix2',querydata['ix2'])
+                    d.put('gridname',control.pseudostation_gridname)
+                else:
+                    d.kill()
+                    message = "Travel time calculator failed to compute P wave arrival time\n"
+                    message += "Epicentral distance(deg)={}".format(dist)
+                    d.elog.log_error("pwstack",message,ErrorSeverity.Invalid)
     return d
 def save_ensemble(ens, dbname_or_handle, data_tag, storage_mode="gridfs", outdir=None):
     """
@@ -577,8 +583,9 @@ def pwstack(db,pf,source_query=None,
                         storage_mode='gridfs',
                              outdir=None,
                                  output_data_tag='test_pwstack_output',
-                                     run_serial=False,
-                                         verbose=False):
+                                     run_serial=True,
+                                         dask_client=None,
+                                             verbose=False):
     """
     Driver function for the pwstack algorithm.
     
@@ -591,6 +598,11 @@ def pwstack(db,pf,source_query=None,
     details on how to run this function that acts like may be 
     eventually wrapped around a main to be CLI application.   
     """
+    # must be dogmatic about this
+    if not run_serial and dask_client is None:
+        message = "pwstack:   illegal argument combination\n"
+        message += "When run_serial is False you must define dask_client as the result of mspass_client.get_scheduler()"
+        raise ValueError(message)
     # the control structure pretty much encapsulates the args for
     # this driver function
     if verbose:
@@ -634,6 +646,9 @@ def pwstack(db,pf,source_query=None,
                                     collection="site",
                                         attributes_to_load=["_id","lat","lon","elev"],
                                 )
+    if not run_serial:
+        srcm_f = dask_client.scatter(srcmatcher, broadcast=True)
+        sitem_f = dask_client.scatter(sitematcher, broadcast=True)
     cutoff=control.aperture.maximum_cutoff()
     staids=list()
     for i in range(control.stagrid.n1):
@@ -702,10 +717,13 @@ def pwstack(db,pf,source_query=None,
             
             if verbose:
                 print("Starting main processing using parallel algorithm for source_id=",sid)
+            # these common data are large and are best pushed to all 
+            # the nodes like this to reduce the size of the dag
+            
             mybag=dask.bag.from_sequence(allqueries)
             # parallel reader - result is a bag of ensembles created from
             # queries held in query
-            mybag = mybag.map(read_ensemble,db.name,control,srcmatcher,sitematcher)
+            mybag = mybag.map(read_ensemble,db.name,control,srcm_f,sitem_f)
             # Now run pwstack_ensemble - it has a long arg list
             mybag = mybag.map(pwstack_ensemble_python,
                     control.SlowGrid,
