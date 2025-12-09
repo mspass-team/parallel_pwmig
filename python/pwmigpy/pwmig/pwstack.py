@@ -559,6 +559,8 @@ def save_ensemble(ens, dbname_or_handle, data_tag, storage_mode="gridfs", outdir
       Otherwise the value is passed to Database.save_data which currently, 
       at least, will create the directory if it does not yet exist. 
     """
+    if ens.dead():
+        return None
     if isinstance(dbname_or_handle,str):
         worker = ddist.get_worker()
         dbclient = worker.data["dbclient"]
