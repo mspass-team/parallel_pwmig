@@ -328,6 +328,7 @@ def get_source_metadata(ensemble)->dict:
                 result['pwmig_source_lon'] = subdoc["lon"]
                 result['pwmig_source_depth'] = subdoc["depth"]
                 result['pwmig_source_time'] = subdoc["time"]
+                result['pwmig_source_id'] = d['telecluster_id']
                 result['telecluster_id'] = d['telecluster_id']
                 # duplicate as noted above
                 result["telecluster_lat"] = result["pwmig_source_lat"]
@@ -349,8 +350,9 @@ def get_source_metadata(ensemble)->dict:
             break
     if not found:
         message = "get_source_metadata:   found no source location data\n"
-        message += "Data need either soure collection data loaded by normalization or a hypocentroid subdoc\n"
+        message += "Data need either source collection data loaded by normalization or a hypocentroid subdoc\n"
         message += "Neither were found any any member of this ensemble"
+        raise MsPASSError("get_source_metadata",message,ErrorSeverity.Fatal)
     return result
 
 def handle_relative_time(ensemble,arrival_key):
