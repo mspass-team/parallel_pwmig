@@ -291,7 +291,7 @@ def build_wfquery(sid,rids,source_collection="telecluster",base_query=None):
     # small
     allqdata['fold'] = len(idlist)
     return allqdata
-def get_source_metadata(ensemble):
+def get_source_metadata(ensemble)->dict:
     """
     Helper for below.  Returns source metadata from the first live
     member of ensemble as a dict.  That is safer than just using the first member
@@ -299,11 +299,22 @@ def get_source_metadata(ensemble):
     Less likely here but a minor cost for robustness.   Returns an empty
     dict if there are no live members.   Caller must handle that condition.
     
-    Note this is not the standard mspass way to handle source data. 
-    It is assumed pwstack is always reading the output of the 
-    pseudosource_stacker tool - or a descendent thereof.   It posts 
-    hypocentroid data that is the appropriate source data for normal use 
-    with pwstack/pwmig.   
+    There is some complexity in this function to allow source data to 
+    come from either a source or telecluster collection.   The later is 
+    detected by the presence of the special key "hypocentroid". When found
+    the function assumes it should fetch source data as the hypocentroid 
+    data stored as a subducument with that key - the output of telecluster.  
+    In all cases duplicate copies of the source metadata are posted with 
+    two different strings prependend.  The generic data are posted with the 
+    string "pwmig_source_".  e.g. source latitude is then posted with the key
+    "pwmig_source_lat".   The key for the copy depends on the input collection. 
+    If using hypocentroid data the prefix "telecluster_" is used.  Hence, for 
+    the lat example the key "telecluster_lat" would contain the same data as
+    "pwmig_source_lat".   If "source" is the parent then the comparable copy 
+    would be found with the key "source_lat".   "lon", "depth", and "time" 
+    are all handled similarly. Only the id field is not duplicated.  
+    i.e. the output will contain an id with either the key "telecluster_id"
+    or "source_id".
     """
     result=dict()
     if ensemble.dead() or number_live(ensemble)==0:
@@ -313,17 +324,27 @@ def get_source_metadata(ensemble):
         if d.live: 
             if "hypocentroid" in d:
                 subdoc = d["hypocentroid"]
-                result['source_lat'] = subdoc["lat"]
-                result['source_lon'] = subdoc["lon"]
-                result['source_depth'] = subdoc["depth"]
-                result['source_time'] = subdoc["time"]
-                result["source_id"] = d["telecluster_id"]
+                result['pwmig_source_lat'] = subdoc["lat"]
+                result['pwmig_source_lon'] = subdoc["lon"]
+                result['pwmig_source_depth'] = subdoc["depth"]
+                result['pwmig_source_time'] = subdoc["time"]
+                result['telecluster_id'] = d['telecluster_id']
+                # duplicate as noted above
+                result["telecluster_lat"] = result["pwmig_source_lat"]
+                result["telecluster_lon"] = result["pwmig_source_lon"]
+                result["telecluster_depth"] = result["pwmig_source_depth"]
+                result["telecluster_time"] = result["pwmig_source_time"]
             else:
-                result['source_lat'] = d.get_double('source_lat')
-                result['source_lon'] = d.get_double('source_lon')
-                result['source_depth'] = d.get_double('source_depth')
-                result['source_time'] = d.get_double('source_time')
-                result['source_id'] = d['source_id']
+                result['pwmig_source_lat'] = d.get_double('source_lat')
+                result['pwmig_source_lon'] = d.get_double('source_lon')
+                result['pwmig_source_depth'] = d.get_double('source_depth')
+                result['pwmig_source_time'] = d.get_double('source_time')
+                result['pwmig_source_id'] = d['source_id']
+                # duplicate as noted above
+                result["source_lat"] = result["pwmig_source_lat"]
+                result["source_lon"] = result["pwmig_source_lon"]
+                result["source_depth"] = result["pwmig_source_depth"]
+                result["source_time"] = result["pwmig_source_time"]
             found = True
             break
     if not found:
@@ -464,8 +485,8 @@ def read_ensemble(querydata,
                 # radians internally
                 pslat=querydata['lat']
                 pslon=querydata['lon']
-                georesult=gps2dist_azimuth(srcdata['source_lat'],
-                                        srcdata['source_lon'],pslat,pslon)
+                georesult=gps2dist_azimuth(srcdata['pwmig_source_lat'],
+                                        srcdata['pwmig_source_lon'],pslat,pslon)
                 # obspy's function we just called returns distance in m in element 0 of a tuple
                 # their travel time calculator it is degrees so we need this conversion
                 Rearth=6378.164
@@ -473,7 +494,7 @@ def read_ensemble(querydata,
                 # We pass the model object through control because I think 
                 # there is a nontrivial overhead in creating it
                 arrivals=control.model.get_travel_times(
-                    source_depth_in_km=srcdata['source_depth'],
+                    source_depth_in_km=srcdata['pwmig_source_depth'],
                     distance_in_degree=dist,phase_list=['P']
                     )
                 if len(arrivals)>0:
@@ -527,10 +548,9 @@ def save_ensemble(ens, dbname_or_handle, data_tag, storage_mode="gridfs", outdir
       as the default writes files to the current directory.   When 
       set to "file" the file names are dogmatically derived from 
       the id of the source document.  That means the file name is usually 
-      the str value of the "telecluster_id" ObjectId of the pseudosource 
-      for this ensemble.  It will be the comparable value of "source_id" if 
-      that is defined.  If neither is defined the sample data will be written 
-      to "pwstack_output.dat".   Output is always as raw binary doubles.
+      the str value of the internal key "pwmig_source_id".   That key is 
+      a required tag and the function will abort with a MsPASSError if it 
+      is not defined.  
     :param outdir:  optional string defining a valid directory in which to 
       save sample data files.   Ignored when storage_mode is set to gridfs. 
       Default is None which causes files to be written to the currenct directory. 
@@ -551,12 +571,10 @@ def save_ensemble(ens, dbname_or_handle, data_tag, storage_mode="gridfs", outdir
             odir=outdir
         else:
             odir="."
-        if "source_id" in ens:
-            dfile = str(ens["source_id"]) + ".dat"
-        elif "telecluster_id" in ens:
-            dfile = str(ens["telecluster_id"]) + ".dat"
-        else:
-            dfile = "pwstack_output.dat"
+        # since it shouldn't happen let this abort with a Metadata 
+        # fetching error if this key is not defined.  Not user 
+        # friendly but appropriate since it is a bug if that happens
+        dfile = str(ens["pwmig_source_id"]) + ".dat"
     sdret = db.save_data(ens,
                          collection="wf_Seismogram",
                              storage_mode=storage_mode,
@@ -716,7 +734,7 @@ def pwstack(db,pf,source_query=None,
         else:
             
             if verbose:
-                print("Starting main processing using parallel algorithm for source_id=",sid)
+                print("Starting main processing using parallel algorithm for source with id=",sid)
             # these common data are large and are best pushed to all 
             # the nodes like this to reduce the size of the dag
             
