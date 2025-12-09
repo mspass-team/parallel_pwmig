@@ -2,6 +2,7 @@ import time  # for testing only - remove when done
 
 import math
 import dask
+import dask.distributed as ddist
 from mspasspy.ccore.utility import (AntelopePf,
                                     Metadata,
                                     MsPASSError,
@@ -198,14 +199,19 @@ def accumulate_python(grid, migseis):
     return grid
 
 
-def _migrate_component(cursor, db, parent, TPfield, VPsvm, Us3d, Vp1d, Vs1d, control):
+def _migrate_component(query,dbname, parent, TPfield, VPsvm, Us3d, Vp1d, Vs1d, control):
     """
     This small function is largely a wrapper for the C++ function
     with the same name sans the _ (i.e. migrate_component).
 
     """
+    worker = ddist.get_worker()
+    dbclient = worker.data["dbclient"]
+    db = dbclient.get_database(dbname)
     t0 = time.time()
+    cursor = db.wf_Seismogram.find(query)
     pwensemble = db.read_data(cursor, collection="wf_Seismogram")
+    cursor.close()
     t1 = time.time()
     pwdgrid = migrate_component(pwensemble, parent, TPfield, VPsvm, Us3d,
                                 Vp1d, Vs1d, control)
@@ -240,7 +246,8 @@ def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
     # print a report for waveform inputs per event
 
 
-def migrate_event(db, source_id, pf, collection='GCLfielddata'):
+def migrate_event(mspass_client, dbname, sid, pf, 
+                    source_collection="telecluster"):
     """
     Top level map function for pwmig.   pwmig is a "prestack" method
     meaning we migrate data from individual source regions (always best
@@ -248,28 +255,41 @@ def migrate_event(db, source_id, pf, collection='GCLfielddata'):
     followed by RFeventStacker.)  This function creates a 3d image
     volume from migration of one ensemble of data assumed linked to
     a single source region.
-
-    :param db:  database handle used to manage data (mspass Database handle).
-    :param source_id:  ObjectId of the source associated with each of waveform
-      to use for imaging. This assumes each wf_Seismogram entry has this
-      field set with the key "source_id".
+    
+    :param mspass_client:  as he name implies the instance of 
+      `mspasspy.client.Client` driving this workflow.   The mspass 
+      client contains a hook for both the database and dask cluster clients.
+    :param dbname:   string defining the name of the database containing 
+      data to be processed.
+    :param sid:  ObjectId of the document containing source data used by 
+      pwstack to generate plane wave estimates used as input for set of 
+      data to be migrated by this function.  This id is linked to the 
+      argument "source_collection" as the actual key used is the 
+      standard composite key for a normalizing collection id 
+      (i.e collection_id).  The default thus assumes 'telecluster_id'
     :param pf:  AntelopePf object containing the control parameters for
       the program (run the pwmig_pfverify function to assure the parameters
       in this file are complete before starting a complete processing run.)
-    :param collection:  collection name where 3d modes are defined
-      (default is GCLfielddata which is the default for the dbsave
-       methods of the set of gclgrid objects.)
+    :param source_collection:   Collection containing source data documents 
+      that define the event to be processed by this function.
+      
+    Warning:   the source_id data extracted from the database is used to 
+    compute 1d and 3d model travel times.   The algorithm depends upon the 
+    id passed as "sid" matching the source data posted in the Metadata of 
+    all data saved by pwstack used as input.   The function does not currently 
+    check for consistency.  
 
     """
-    gclcollection = db[collection]
+    db = mspass_client.get_database(dbname)
+    dask_client = mspass_client.get_scheduler()
     # Freeze use of source collection for source_id consistent with MsPASS
     # default schema.
-    doc = db.source.find_one({'_id': source_id})
+    doc = db[source_collection].find_one({'_id': sid})
     if doc == None:
         # This is fatal because expected use is parallel processing of multiple event
         # if any are not defined the job should abort.  Also a preprocess
         # checker is planned to check for such problems
-        raise MsPASSError("migrate_event:  source_id=" + str(source_id) + " not found in database", ErrorSeverity.Fatal)
+        raise MsPASSError("migrate_event:  source_id=" + str(sid) + " not found in database", ErrorSeverity.Fatal)
     source_lat = doc['lat']
     source_lon = doc['lon']
     source_depth = doc['depth']
@@ -372,9 +392,12 @@ def migrate_event(db, source_id, pf, collection='GCLfielddata'):
                                          Up3d, Vp1d, svm0, zmax * zpad, tmax, dt, zdecfac, True)
     del Up3d
 
-    # The loop over plane wave components is driven by a list of cursors
-    # created in this MongoDB incantation
-    query = {'source_id': source_id}
+    # The loop over plane wave components is driven by a list of gridids
+    # retried this way.   We also need, however, to subset by source id.  
+    # some complexity here to handle source or telecluster as collection 
+    # used for defining source data
+    key = source_collection + "_id"
+    query = {key: sid}
     gridid_list = db.wf_Seismogram.find(query).distinct('gridid')
 
     # from mspasspy.client import Client
@@ -456,27 +479,36 @@ def migrate_event(db, source_id, pf, collection='GCLfielddata'):
     #         print("Time to sum this plane wave component =", time.time() - t0)
     #
     # return migrated_image
+    
+    # these are all huge and need to be pushed to all workers once to 
+    # reduce serialization overhead
+    f_parent = dask_client.scatter(parent,broadcast=True)
+    f_TPfield = dask_client.scatter(TPfield,broadcast=True)
+    f_svm0 = dask_client.scatter(svm0,broadcast=True)
+    f_Us3d = dask_client.scatter(Us3d,broadcast=True)
+    f_Vp1d = dask_client.scatter(Vp1d,broadcast=True)
+    f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
+    # this one isn't that large but probably better pushed this way
+    f_control = dask_client.scatter(control,broadcast=True)
 
-    from mspasspy.client import Client
+    # for performance testing - will be removed for release
     import time, os
-    from dask.distributed import as_completed, performance_report
 
-
-    # Create Dask client using mspass client
-    client = Client(scheduler="dask")
-    dask_client = client.get_scheduler()
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     folder = "./dask_reports"
     if not os.path.exists(folder):
         os.makedirs(folder)
 
-    with performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
+    with ddist.performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
         futures_list = []
+        sidkey = source_collection + "_id"
         for gridid in gridid_list:
-            print("Submitting job for gridid=", gridid)
-            cursor = query_by_id(gridid, db, source_id)
-            f = dask_client.submit(_migrate_component, cursor, db, parent, TPfield,
-                                   svm0, Us3d, Vp1d, Vs1d, control)
+            query = {sidkey: sid, "gridid": gridid}
+            nwf = db.wf_Seismogram.count_documents(query)
+            print("Submitting data to cluster defined by this database query: ",query)
+            print("Number of plane Seismogram objects to use as input=",nwf)
+            f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
+                                   f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
             futures_list.append(f)
 
         # Binary tree reduction for parallel accumulation with timely garbage collection
