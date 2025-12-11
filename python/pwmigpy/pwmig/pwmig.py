@@ -290,9 +290,12 @@ def migrate_event(mspass_client, dbname, sid, pf,
         # if any are not defined the job should abort.  Also a preprocess
         # checker is planned to check for such problems
         raise MsPASSError("migrate_event:  source_id=" + str(sid) + " not found in database", ErrorSeverity.Fatal)
-    source_lat = doc['lat']
-    source_lon = doc['lon']
-    source_depth = doc['depth']
+    # these are generic names to allow source data to defined in 
+    # either the telelcluster or source collection.  pwstack set these 
+    # passing them downstream to here.
+    source_lat = doc['pwmig_source_lat']
+    source_lon = doc['pwmig_source_lon']
+    source_depth = doc['pwmig_source_depth']
     # source_time=doc['time']
 
     # This function is the one that extracts parameters required in
