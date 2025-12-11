@@ -223,7 +223,7 @@ def dftogcl(df,name_index=['lon','lat','depth','vp','hitcount'],
     gcf.compute_extents()
     return gcf
             
-def Velocity3DToSlowness(Vmod3D,ConvertToPerturbation=False):
+def Velocity3DToSlowness(Vmod3D,name=None,ConvertToPerturbation=False):
     """
     Convert a model defined by a GCLscalarfield3d object with velocities 
     as the node values to slowness.   (Note because the operator is 
@@ -237,11 +237,22 @@ def Velocity3DToSlowness(Vmod3D,ConvertToPerturbation=False):
     Warning:  this function alters the data of Vmod3D in place to 
     save memory.   
     
+    This functionw will abort if it detects a velocity value <=0  as it assumes 
+    that means the user gave it a perturbation field not an absolute velocity 
+    field. 
+    
     :param Vmod3D the GCLscalar3d object to be converted
+    :param name: set name of the output to this value.  By default it is 
+      not altered.  WARNING: if your workflow saves this field you probably 
+      want to set this as it can yield an ambiguous document in the database.
     :param ConvertToPerturbation:  when true the mean value is 
       removed from each constant x3 slice to approximate a perturbation 
       model.  Note this works badly on some models near the Moho, but 
       the impact on pwmig depth projects is usually minimal.  default is false
+    :return:  altered copy of Vmod3D with velocities converted to slowness. 
+      WARNING:   Vmod3D is altered in place and should not be used after 
+      calling this function.  Don't delete it either since the return is 
+      just a reference to the altered Vmod3d.
       
     """
     if not isinstance(Vmod3D,GCLscalarfield3d):
@@ -252,8 +263,14 @@ def Velocity3DToSlowness(Vmod3D,ConvertToPerturbation=False):
         for j in range(Vmod3D.n2):
             for k in range(Vmod3D.n3):
                 vel = Vmod3D.get_value(i,j,k)
+                if vel<=0.0:
+                    message="Velocity3DToSlowness:   found an invalid velocity value={} at index [{},{},{}]\n".format(vel,i,j,k)
+                    message += "You are likely refering a GCLfield of velocity perturbations not velocities"
+                    raise ValueError(message)
                 u = 1/vel
                 Vmod3D.set_value(u,i,j,k)
     if ConvertToPerturbation:
         remove_mean_x3(Vmod3D)
-        
+    if name is not None:
+        Vmod3D.name=name
+    return Vmod3D
