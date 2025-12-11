@@ -18,7 +18,7 @@ from pwmigpy.ccore.pwmigcore import (SlownessVectorMatrix,
                                      migrate_component)
 from pwmigpy.db.database import (vmod1d_dbread_by_name,
                                  GCLdbread_by_name)
-from pwmigpy.utililty.earthmodels import Velocity3DToSlowness
+from pwmigpy.utility.earthmodels import Velocity3DToSlowness
 
 
 # from pwmigpy.ccore.seispp import VelocityModel_1d
