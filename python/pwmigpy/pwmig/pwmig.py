@@ -3,25 +3,22 @@ import time  # for testing only - remove when done
 import math
 import dask
 import dask.distributed as ddist
-from mspasspy.ccore.utility import (AntelopePf,
-                                    Metadata,
+from mspasspy.ccore.utility import (Metadata,
                                     MsPASSError,
                                     ErrorSeverity)
 from mspasspy.ccore.seismic import (SlownessVector)
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth, kilometers2degrees
 
-from pwmigpy.ccore.gclgrid import (GCLvectorfield3d,
-                                   PWMIGfielddata)
+from pwmigpy.ccore.gclgrid import (GCLvectorfield3d)
 
 from pwmigpy.ccore.pwmigcore import (SlownessVectorMatrix,
-                                     Build_GCLraygrid,
                                      ComputeIncidentWaveRaygrid,
                                      migrate_one_seismogram,
                                      migrate_component)
-from pwmigpy.db.database import (GCLdbread,
-                                 vmod1d_dbread_by_name,
+from pwmigpy.db.database import (vmod1d_dbread_by_name,
                                  GCLdbread_by_name)
+from pwmigpy.utililty.earthmodels import Velocity3DToSlowness
 
 
 # from pwmigpy.ccore.seispp import VelocityModel_1d
@@ -381,10 +378,33 @@ def migrate_event(mspass_client, dbname, sid, pf,
     # building on from a 1d model is considered a preprocessing step
     # to assure the following loads will succeed.
     # WARNING - these names are new and not in any old pf files driving C++ version
-    up3dname = pf.get_string('Pslowness_model_name')
-    us3dname = pf.get_string('Sslowness_model_name')
-    Up3d = GCLdbread_by_name(db, up3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
-    Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+    
+    # load the slowness field directly if it is define.  If not try to 
+    # derive alternate tag of a velocity fieldl name
+    if "P_slowness_model_name" in pf:
+        up3dname = pf.get_string('P_slowness_model_name')
+        us3dname = pf.get_string('S_slowness_model_name')
+        Up3d = GCLdbread_by_name(db, up3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+        Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+    elif "P_velocity_model3d_name" in pf:
+        up3dname = pf.get_string("P_velocity_model3d_name")
+        Up3d = GCLdbread_by_name(db, up3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+        # convert to slowness
+        Up3d = Velocity3DToSlowness(Up3d)
+    else:
+        message=""
+        raise MsPASSError()
+    if "S_slowness_model_name" in pf:
+        us3dname = pf.get_string('S_slowness_model_name')
+        Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+    elif "S_velocity_model3d_name" in pf:
+        us3dname = pf.get_string("S_velocity_model3d_name")
+        Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+        # convert to slowness
+        Us3d = Velocity3DToSlowness(Us3d)
+    else:
+        message=""
+        raise MsPASSError()
     # Similar for 1d models.   The velocity name key is the pf here is the
     # same though since we don't convert to slowness in a 1d model
     # note the old program used files.  Here we store these in mongodb
