@@ -290,12 +290,21 @@ def migrate_event(mspass_client, dbname, sid, pf,
         # if any are not defined the job should abort.  Also a preprocess
         # checker is planned to check for such problems
         raise MsPASSError("migrate_event:  source_id=" + str(sid) + " not found in database", ErrorSeverity.Fatal)
-    # these are generic names to allow source data to defined in 
-    # either the telelcluster or source collection.  pwstack set these 
-    # passing them downstream to here.
-    source_lat = doc['pwmig_source_lat']
-    source_lon = doc['pwmig_source_lon']
-    source_depth = doc['pwmig_source_depth']
+    # This is needed to handle use either source or telecluster for 
+    # source data - they store the data differently
+    if source_collection=="telecluster":
+        subdoc=doc["hypocentroid"]
+        source_lat=subdoc["lat"]
+        source_lon=subdoc["lon"]
+        source_depth=subdoc["depth"]
+    elif source_collection=="source":
+        source_lat = doc['source_lat']
+        source_lon = doc['source_lon']
+        source_depth = doc['source_depth']
+    else:
+        message = "migrate_event:   illegal value received with source_collection={}\n".format(source_collection)
+        message += "Must be either telecluster (default) or source"
+        raise ValueError(message)
     # source_time=doc['time']
 
     # This function is the one that extracts parameters required in
