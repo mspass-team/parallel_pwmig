@@ -533,8 +533,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
             nwf = db.wf_Seismogram.count_documents(query)
             print("Submitting data to cluster defined by this database query: ",query)
             print("Number of plane Seismogram objects to use as input=",nwf)
-            f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
-                                   f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
+            #f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
+            #                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
+            f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
+                                   svm0, Us3d, Vp1d, Vs1d, control)
             futures_list.append(f)
 
         # Binary tree reduction for parallel accumulation with timely garbage collection
