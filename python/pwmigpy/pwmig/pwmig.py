@@ -90,11 +90,6 @@ def _build_control_metadata(control):
     else:
         dz = 1.0
         _print_default_used_message("ray_trace_depth_increment", dz)
-    if control.is_defined("number_of_threads_per_worker"):
-        nthreads = control.get_long("number_of_threads_per_worker")
-    else:
-        nthreads = 4
-        _print_default_used_message("number_of_threads_per_worker", nthreads)
 
     result.put("use_3d_velocity_model", use_3d_vmodel)
     result.put("use_grt_weights", use_grt_weights)
@@ -110,7 +105,6 @@ def _build_control_metadata(control):
     result.put("maximum_depth", control["maximum_depth"])
     result.put("maximum_time_lag", control["maximum_time_lag"])
     result.put("data_sample_interval", control["data_sample_interval"])
-    result.put("number_of_threads_per_worker", nthreads)
     return result;
 
 
