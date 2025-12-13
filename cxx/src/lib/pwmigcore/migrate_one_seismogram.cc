@@ -75,7 +75,7 @@ PWMIGmigrated_seismogram migrate_one_seismogram(Seismogram& pwdata,
   int border_pad = control.get_int("border_padding");
 	double zpad = control.get_double("depth_padding_multiplier");
   double taper_length=control.get_double("taper_length_turning_rays");
-  bool rcomp_wt=control.get_bool("recompute_weight_functions");
+  //bool rcomp_wt=control.get_bool("recompute_weight_functions");
 	int nwtsmooth=control.get_int("weighting_function_smoother_length");
 	bool smooth_wt;
 	if(nwtsmooth<=0)
@@ -87,7 +87,6 @@ PWMIGmigrated_seismogram migrate_one_seismogram(Seismogram& pwdata,
   double dz=control.get_double("ray_trace_depth_increment");
   /* End get calls on control container */
 
-  bool weight_functions_set=false;
   int n3=raygrid.n3;
   double zmaxray;
   vector<double> Stime(n3), SPtime(n3);
@@ -320,49 +319,46 @@ PWMIGmigrated_seismogram migrate_one_seismogram(Seismogram& pwdata,
   result.migrated_data=trans_operator.apply(result.migrated_data);
   // done with these now
   delete pathptr;
-
-  // This computes domega for a ray path in constant dz mode
-  // We would have to interpolate anyway to mesh with
-  // time data choose the faster, coarser dz method here
-  //
-  if(rcomp_wt || !weight_functions_set)
-  {
   std::cout << "Debug migrate_one_seismogram:  "
   << "Entered weight computation block with stack_only="<<stack_only<<endl;
-    /* This is a gross inefficiency in stack_only but since I only expect it to be
-    used for CCP stacking equivalent, this should not be a big deal.  Probably should
-    do it right some day */
-    if(stack_only)
+  /* This is a gross inefficiency in stack_only but since I only expect it to be
+  used for CCP stacking equivalent, this should not be a big deal.  Probably should
+  do it right some day */
+  if(stack_only)
+  {
+    result.domega.clear();
+    for(k=0;k<n3;++k) result.domega.push_back(1.0);
+    for(k=0;k<n3;++k) result.dweight.push_back(1.0);
+  }
+  else
+  {
+    /* This is the normal block for computing solid angles */
+    result.domega=compute_domega_for_path(u0,dux,duy,
+      Vs1d, zmaxray,dz,
+      raygrid, i, j, gradTp,zP);
+    if(use_grt_weights)
     {
-      result.domega.clear();
-      for(k=0;k<n3;++k) result.domega.push_back(1.0);
-    }
-    else
-    {
-      /* This is the normal block for computing solid angles */
-      result.domega=compute_domega_for_path(u0,dux,duy,
-        Vs1d, zmaxray,dz,
-        raygrid, i, j, gradTp,zP);
-    }
-    if(use_grt_weights && (!stack_only) )
-    {
-  std::cout << "Debug migrate_one_seismogram:  "
-  << "Calling compute_weight_for_path gradTP and gradTs sizes"
-  << gradTp.columns()<<" "<<gradTs.columns()<<std::endl;
+std::cout << "Debug migrate_one_seismogram:  "
+<< "Calling compute_weight_for_path gradTP and gradTs sizes"
+<< gradTp.columns()<<" "<<gradTs.columns()<<std::endl;
       result.dweight=compute_weight_for_path(gradTp,gradTs);
     }
     else
+    {
       for(k=0;k<n3;++k)result.dweight[k]=1.0;
-    if(smooth_wt && (!stack_only))
+    }
+    if(smooth_wt)
     {
       result.domega=running_average(result.domega,nwtsmooth);
       // Unnecessary when not using grt weighting
       if(use_grt_weights)
         result.dweight=running_average(result.dweight,nwtsmooth);
     }
-    weight_functions_set=true;
   }
   result.live=true;
+std::cout << "Debug migrate_one_seismogram:  "
+<< "Returned domega and weight vector sizes="<<result.domega.size()
+<< " " << result.dweight.size() << std::endl;
   return result;
 }
 
