@@ -1,4 +1,4 @@
-#include <omp.h>
+//#include <omp.h>
 // used only for debug - remove when finished
 //#include <iostream>
 //using namespace std;
@@ -47,6 +47,8 @@ PWMIGfielddata migrate_component(ThreeComponentEnsemble& d,
   PWMIGfielddata pwdgrid(*raygrid);
   omp_set_num_threads(8);
   #pragma omp parallel for
+  std::cout<<"DEBUG:  Started processing ensemble with this metadata"<<std::endl
+    << dynamic_cast<Metadata&>(d) << std::endl;
   for(int m=0;m<d.member.size();++m)
   {
     PWMIGmigrated_seismogram dout;
