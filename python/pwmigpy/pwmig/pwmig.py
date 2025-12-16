@@ -508,6 +508,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
     
     # these are all huge and need to be pushed to all workers once to 
     # reduce serialization overhead
+    """
     f_parent = dask_client.scatter(parent,broadcast=True)
     f_TPfield = dask_client.scatter(TPfield,broadcast=True)
     f_svm0 = dask_client.scatter(svm0,broadcast=True)
@@ -516,6 +517,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
     f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
     # this one isn't that large but probably better pushed this way
     f_control = dask_client.scatter(control,broadcast=True)
+    """
 
     # for performance testing - will be removed for release
     import time, os
@@ -524,7 +526,29 @@ def migrate_event(mspass_client, dbname, sid, pf,
     folder = "./dask_reports"
     if not os.path.exists(folder):
         os.makedirs(folder)
-
+    # serial version for testing - remove after testing
+    i=0
+    for gridid in gridid_list:
+        print("Working on gridid=",gridid)
+        t0 = time.time()
+        query = {"telecluster_id": sid, "gridid": gridid}
+        cursor = db.wf_Seismogram.find(query)
+        pwensemble = db.read_data(cursor, collection="wf_Seismogram")
+        cursor.close()
+        t1 = time.time()
+        pwdgrid = migrate_component(pwensemble, parent, TPfield, svm0, Us3d,
+                                    Vp1d, Vs1d, control)
+        t2=time.time()
+        if i==0:
+            migrated_image = pwdgrid
+        else:
+            migrated_image += pwdgrid
+        t3 = time.time()
+        print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
+        print("Time to sum grids=",t3-t2)
+        i += 1
+    # parallel version - commented out temporarily for debugging 
+    """
     with ddist.performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
         futures_list = []
         sidkey = source_collection + "_id"
@@ -557,5 +581,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
             futures_list = new_futures
 
         migrated_image = futures_list[0].result()
+    """
 
     return migrated_image
