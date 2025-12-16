@@ -208,7 +208,10 @@ def _migrate_component(query,dbname, parent, TPfield, VPsvm, Us3d, Vp1d, Vs1d, c
                                 Vp1d, Vs1d, control)
     t2 = time.time()
     print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
-    return pwdgrid
+    #return pwdgrid
+    # just return a nessage for debugging
+    del pwdgrid
+    return "finished ensemble with {} members".format(len(pwensemble.member))
 
 
 def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
@@ -527,6 +530,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
     if not os.path.exists(folder):
         os.makedirs(folder)
     # serial version for testing - remove after testing
+    """
     i=0
     for gridid in gridid_list:
         print("Working on gridid=",gridid)
@@ -547,7 +551,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
         print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
         print("Time to sum grids=",t3-t2)
         i += 1
-    # parallel version - commented out temporarily for debugging 
     """
     with ddist.performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
         futures_list = []
@@ -562,7 +565,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
             f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
                                    svm0, Us3d, Vp1d, Vs1d, control)
             futures_list.append(f)
-
+        """
+        # Temporarily disabled for testing
         # Binary tree reduction for parallel accumulation with timely garbage collection
         def add_images(a, b):
             # Function to add two migrated image components.
@@ -579,8 +583,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
                     # Carry forward the odd future.
                     new_futures.append(futures_list[i])
             futures_list = new_futures
+        """
 
         migrated_image = futures_list[0].result()
-    """
+        # for debugging this is just a list of messages
+        print(migrated_image)
 
     return migrated_image
