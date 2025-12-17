@@ -1,0 +1,69 @@
+aperture_taper_length 2.0
+centroid_cutoff 35.0 
+use_fresnel_aperture true
+fresnel_vs 4.5
+fresnel_vp 8.1
+fresnel_cutoff_multiplier 2.0
+fresnel_period 5.0
+fresnel_lag_time_sampling_interval 1.0
+fresnel_number_lag_samples 100
+
+enable_data_mute true
+Data_Top_Mute	&Arr{
+    end_time	3.0
+    time_reference_type	relative
+    zero_end_time	1.0
+}
+RectangularSlownessGrid	&Arr{
+    Slowness_Grid_Name	test
+    dux	0.01
+    duy	0.01
+    nux	11
+    nuy	11
+    uxlow	-0.05
+    uylow	-0.05
+}
+enable_stack_mute true
+Stack_Top_Mute	&Arr{
+    end_time	3.0
+    time_reference_type	relative
+    zero_end_time	1.0
+}
+data_time_window_end	120.0
+data_time_window_start	-25.0
+depth_dependent_aperture	&Tbl{
+    0.0 75.0 150.0
+   700.0 75.0 150.0
+}
+pseudostation_grid_name	ak135
+stack_time_end	120.0
+stack_time_start	0.0
+station_metadata	&Tbl{
+    sta string
+    time real
+    endtime real
+    nsamp int
+    samprate real
+    dfile string
+    dir string
+    foff int
+    arrival.time real
+    arrival.iphase string
+    assoc.phase string
+    site.lat real
+    site.lon real
+    site.elev real
+    site.refsta string
+    site.dnorth real
+    site.deast real
+    timetype string
+    datatype string
+}
+waveform_directory	./pwfiles
+coherence_sample_interval 5.0
+coherence_average_length 10.0
+output_data_file_base_name pwtest
+database_view_mode use_wfprocess
+field_file_directory migrated_data_e13rv2
+field_base_name fold
+stack_count_cutoff 5
