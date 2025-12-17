@@ -208,10 +208,10 @@ def _migrate_component(query,dbname, parent, TPfield, VPsvm, Us3d, Vp1d, Vs1d, c
                                 Vp1d, Vs1d, control)
     t2 = time.time()
     print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
-    #return pwdgrid
+    return pwdgrid
     # just return a nessage for debugging
-    del pwdgrid
-    return "finished ensemble with {} members".format(len(pwensemble.member))
+    #del pwdgrid
+    #return "finished ensemble with {} members".format(len(pwensemble.member))
 
 
 def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
@@ -565,7 +565,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
             f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
                                    svm0, Us3d, Vp1d, Vs1d, control)
             futures_list.append(f)
-        """
         # Temporarily disabled for testing
         # Binary tree reduction for parallel accumulation with timely garbage collection
         def add_images(a, b):
@@ -583,10 +582,9 @@ def migrate_event(mspass_client, dbname, sid, pf,
                     # Carry forward the odd future.
                     new_futures.append(futures_list[i])
             futures_list = new_futures
-        """
 
-        migrated_image = futures_list[0].result()
+        #migrated_image = futures_list[0].result()
         # for debugging this is just a list of messages
-        print(migrated_image)
+        #print(migrated_image)
 
     return migrated_image
