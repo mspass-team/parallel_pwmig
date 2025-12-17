@@ -585,6 +585,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
 
         #migrated_image = futures_list[0].result()
         # for debugging this is just a list of messages
-        #print(migrated_image)
+        print(migrated_image)
 
     return migrated_image
