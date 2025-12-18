@@ -507,11 +507,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
     #         migrated_image += migrated_data
     #         print("Time to sum this plane wave component =", time.time() - t0)
     #
-    # return migrated_image
-    
     # these are all huge and need to be pushed to all workers once to 
     # reduce serialization overhead
-    """
     f_parent = dask_client.scatter(parent,broadcast=True)
     f_TPfield = dask_client.scatter(TPfield,broadcast=True)
     f_svm0 = dask_client.scatter(svm0,broadcast=True)
@@ -520,7 +517,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
     f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
     # this one isn't that large but probably better pushed this way
     f_control = dask_client.scatter(control,broadcast=True)
-    """
 
     # for performance testing - will be removed for release
     import time, os
@@ -552,6 +548,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
         print("Time to sum grids=",t3-t2)
         i += 1
     """
+    from dask.distributed import as_completed
     with ddist.performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
         futures_list = []
         sidkey = source_collection + "_id"
@@ -560,11 +557,16 @@ def migrate_event(mspass_client, dbname, sid, pf,
             nwf = db.wf_Seismogram.count_documents(query)
             print("Submitting data to cluster defined by this database query: ",query)
             print("Number of plane Seismogram objects to use as input=",nwf)
-            #f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
-            #                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
-            f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
-                                   svm0, Us3d, Vp1d, Vs1d, control)
+            f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
+                                   f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
+            #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
+            #                       svm0, Us3d, Vp1d, Vs1d, control)
             futures_list.append(f)
+        for f in as_completed(futures_list):
+            x=f.result()
+            del x
+            print("Finished one")
+        """
         # Temporarily disabled for testing
         # Binary tree reduction for parallel accumulation with timely garbage collection
         def add_images(a, b):
@@ -583,8 +585,9 @@ def migrate_event(mspass_client, dbname, sid, pf,
                     new_futures.append(futures_list[i])
             futures_list = new_futures
 
-        #migrated_image = futures_list[0].result()
+        migrated_image = futures_list[0].result()
         # for debugging this is just a list of messages
         print(migrated_image)
+        """
 
     return migrated_image
