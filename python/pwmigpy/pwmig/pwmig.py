@@ -241,7 +241,8 @@ def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
 
 
 def migrate_event(mspass_client, dbname, sid, pf, 
-                    source_collection="telecluster"):
+                    source_collection="telecluster",
+                    parallel=True):
     """
     Top level map function for pwmig.   pwmig is a "prestack" method
     meaning we migrate data from individual source regions (always best
@@ -250,9 +251,16 @@ def migrate_event(mspass_client, dbname, sid, pf,
     volume from migration of one ensemble of data assumed linked to
     a single source region.
     
+    The linkto source region is through a database id.  The function 
+    allows the source data to be defined in either the "telecluster"
+    collection (default) or the "source" collection - the normal 
+    MsPASS collection for source data.   Most data will use telecluster
+    unless a nonstandard method is used to assemble the data for processing.
+    
     :param mspass_client:  as he name implies the instance of 
       `mspasspy.client.Client` driving this workflow.   The mspass 
       client contains a hook for both the database and dask cluster clients.
+      Both are required for this algorithm.
     :param dbname:   string defining the name of the database containing 
       data to be processed.
     :param sid:  ObjectId of the document containing source data used by 
@@ -260,22 +268,30 @@ def migrate_event(mspass_client, dbname, sid, pf,
       data to be migrated by this function.  This id is linked to the 
       argument "source_collection" as the actual key used is the 
       standard composite key for a normalizing collection id 
-      (i.e collection_id).  The default thus assumes 'telecluster_id'
+      (i.e collection_id).  T
     :param pf:  AntelopePf object containing the control parameters for
       the program (run the pwmig_pfverify function to assure the parameters
       in this file are complete before starting a complete processing run.)
     :param source_collection:   Collection containing source data documents 
       that define the event to be processed by this function.
+    :param parallel:   boolean that when true runs the algorithm in 
+      paallel using dask.   When false processing is serial.  
       
-    Warning:   the source_id data extracted from the database is used to 
+    Warning:   the source data extracted from the database is used to 
     compute 1d and 3d model travel times.   The algorithm depends upon the 
     id passed as "sid" matching the source data posted in the Metadata of 
     all data saved by pwstack used as input.   The function does not currently 
-    check for consistency.  
+    check for consistency.  That is assured if the input is from stacks 
+    produced by pseudosource_stacker but custom data assembly processing 
+    must understand how all that works.  
 
     """
-    db = mspass_client.get_database(dbname)
-    dask_client = mspass_client.get_scheduler()
+    if parallel:
+        db = mspass_client.get_database(dbname)
+        dask_client = mspass_client.get_scheduler()
+    else:
+        db = mspass_client.get_database(dbname)
+        dask_client = None
     # Freeze use of source collection for source_id consistent with MsPASS
     # default schema.
     doc = db[source_collection].find_one({'_id': sid})
@@ -509,14 +525,15 @@ def migrate_event(mspass_client, dbname, sid, pf,
     #
     # these are all huge and need to be pushed to all workers once to 
     # reduce serialization overhead
-    f_parent = dask_client.scatter(parent,broadcast=True)
-    f_TPfield = dask_client.scatter(TPfield,broadcast=True)
-    f_svm0 = dask_client.scatter(svm0,broadcast=True)
-    f_Us3d = dask_client.scatter(Us3d,broadcast=True)
-    f_Vp1d = dask_client.scatter(Vp1d,broadcast=True)
-    f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
-    # this one isn't that large but probably better pushed this way
-    f_control = dask_client.scatter(control,broadcast=True)
+    if parallel:
+        f_parent = dask_client.scatter(parent,broadcast=True)
+        f_TPfield = dask_client.scatter(TPfield,broadcast=True)
+        f_svm0 = dask_client.scatter(svm0,broadcast=True)
+        f_Us3d = dask_client.scatter(Us3d,broadcast=True)
+        f_Vp1d = dask_client.scatter(Vp1d,broadcast=True)
+        f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
+        # this one isn't that large but probably better pushed this way
+        f_control = dask_client.scatter(control,broadcast=True)
 
     # for performance testing - will be removed for release
     import time, os
@@ -548,8 +565,9 @@ def migrate_event(mspass_client, dbname, sid, pf,
         print("Time to sum grids=",t3-t2)
         i += 1
     """
-    from dask.distributed import as_completed
-    with ddist.performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
+    # from dask.distributed import as_completed
+    #with ddist.performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
+    if parallel:
         futures_list = []
         sidkey = source_collection + "_id"
         for gridid in gridid_list:
@@ -562,12 +580,13 @@ def migrate_event(mspass_client, dbname, sid, pf,
             #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
             #                       svm0, Us3d, Vp1d, Vs1d, control)
             futures_list.append(f)
+        """
+        # used for testing - deleted when fully resolved
         for f in as_completed(futures_list):
             x=f.result()
             del x
             print("Finished one")
         """
-        # Temporarily disabled for testing
         # Binary tree reduction for parallel accumulation with timely garbage collection
         def add_images(a, b):
             # Function to add two migrated image components.
@@ -586,8 +605,28 @@ def migrate_event(mspass_client, dbname, sid, pf,
             futures_list = new_futures
 
         migrated_image = futures_list[0].result()
-        # for debugging this is just a list of messages
-        print(migrated_image)
-        """
-
+    else:
+        idkey = source_collection + "_id"
+        query = {idkey: sid}
+        i=0
+        for gridid in gridid_list:
+            print("Working on gridid=",gridid)
+            t0 = time.time()
+            query["gridid"] = gridid
+            cursor = db.wf_Seismogram.find(query)
+            pwensemble = db.read_data(cursor, collection="wf_Seismogram")
+            cursor.close()
+            t1 = time.time()
+            pwdgrid = migrate_component(pwensemble, parent, TPfield, svm0, Us3d,
+                                        Vp1d, Vs1d, control)
+            t2=time.time()
+            if i==0:
+                migrated_image = pwdgrid
+            else:
+                migrated_image += pwdgrid
+            t3 = time.time()
+            print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
+            print("Time to sum grids=",t3-t2)
+            i += 1
+        
     return migrated_image
