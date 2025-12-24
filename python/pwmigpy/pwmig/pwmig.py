@@ -239,10 +239,29 @@ def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
     # 1  verify all gclfeield and vmodel data
     # print a report for waveform inputs per event
 
+def compute_3dfieldsize(f)->int:
+    """`
+    Returns the size in bytes of a GCLfield3D object.  Works for 
+    vector or scalar fileds.   Assumes all array elements are 8 bytes
+    which is true of the C++ function that defines these objects.
+    Input is the field.  Output is an integer with a size estimate.
+    
+    Note the size returned neglects object scalar attributes that 
+    are always tiny compared to the field data. 
+    """
+    ngridpoints=f.n1*f.n2*f.n3
+    if f.hasattr("nv"):
+        nv=f.nv
+    else:
+        nv=1
+    fielddatasize=nv*ngridpoints
+    total_arraysize = 3*ngridpoints + fielddatasize
+    return 8*total_arraysize
 
 def migrate_event(mspass_client, dbname, sid, pf, 
                     source_collection="telecluster",
-                    parallel=True):
+                    parallel=True,
+                    verbose=False):
     """
     Top level map function for pwmig.   pwmig is a "prestack" method
     meaning we migrate data from individual source regions (always best
@@ -275,7 +294,9 @@ def migrate_event(mspass_client, dbname, sid, pf,
     :param source_collection:   Collection containing source data documents 
       that define the event to be processed by this function.
     :param parallel:   boolean that when true runs the algorithm in 
-      paallel using dask.   When false processing is serial.  
+      paallel using dask.   When false processing is serial.
+    :param verbose:  boolean that when true will generate more volumious 
+      output.   Default is mostly silent. 
       
     Warning:   the source data extracted from the database is used to 
     compute 1d and 3d model travel times.   The algorithm depends upon the 
@@ -292,6 +313,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
     else:
         db = mspass_client.get_database(dbname)
         dask_client = None
+        if verbose:
+            print("Wanring:  running serial mode which may run for a long time")
     # Freeze use of source collection for source_id consistent with MsPASS
     # default schema.
     doc = db[source_collection].find_one({'_id': sid})
@@ -302,6 +325,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
         raise MsPASSError("migrate_event:  source_id=" + str(sid) + " not found in database", ErrorSeverity.Fatal)
     # This is needed to handle use either source or telecluster for 
     # source data - they store the data differently
+    # note the algorithm uses relative time and does not need origin time
     if source_collection=="telecluster":
         subdoc=doc["hypocentroid"]
         source_lat=subdoc["lat"]
@@ -315,6 +339,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
         message = "migrate_event:   illegal value received with source_collection={}\n".format(source_collection)
         message += "Must be either telecluster (default) or source"
         raise ValueError(message)
+    if verbose:
+        print("Working on source with latitude=",source_lat,
+              " lon=",source_lon,
+              ", and depth=",source_depth)
     # source_time=doc['time']
 
     # This function is the one that extracts parameters required in
@@ -323,6 +351,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
     # this control metadata container around.  The dark side is if any
     # new parameters are added changes are required in this function,
     control = _build_control_metadata(pf)
+    if verbose:
+        print("Successfully built internal control structure for pf input")
 
     # This builds the image volume used to accumulate plane wave
     # components.   We assume it was constructed earlier and saved
@@ -333,6 +363,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
     migrated_image = GCLvectorfield3d(imggrid, 5)
     del imggrid
     migrated_image.zero()
+    if verbose:
+        print("Creeated image grid")
+        imagevolsize=compute_3dfieldsize(migrated_image)
+        print("Size (bytes) of image grid used for this run=",imagevolsize)
 
     # This function extracts parameters passed around through a Metadata
     # container (what it returns).   These are a subset of those extracted
@@ -432,10 +466,17 @@ def migrate_event(mspass_client, dbname, sid, pf,
     # no stable and usable, open-source, travel time calculator in a lower
     # level language.  The performance hit doesn't seem horrible anyway
     # since we only compute this once per event
+    if verbose:
+        t0=time.time()
+        print("Starting to compute incident P wave raygrid volume")
     svm0 = BuildSlownessGrid(parent, source_lat, source_lon, source_depth)
     TPfield = ComputeIncidentWaveRaygrid(parent, border_pad,
                                          Up3d, Vp1d, svm0, zmax * zpad, tmax, dt, zdecfac, True)
     del Up3d
+    if verbose:
+        print("Finished computatio in ",time.time()-t0," seconds")
+        ttgsize=compute_3dfieldsize(TPfield)
+        print("Size in bytes of 3d scalar volue=",ttgsize)
 
     # The loop over plane wave components is driven by a list of gridids
     # retried this way.   We also need, however, to subset by source id.  
@@ -445,86 +486,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
     query = {key: sid}
     gridid_list = db.wf_Seismogram.find(query).distinct('gridid')
 
-    # from mspasspy.client import Client
-    # import time
-    #
-    # # Create a Spark client without specifying scheduler_host
-    # client = Client(scheduler="spark")
-    # spark_context = client.get_scheduler()
-    #
-    # def process_gridid(gridid):
-    #     # Print the current gridid being processed
-    #     print("Working on gridid=", gridid)
-    #     cursor = query_by_id(gridid, db, source_id)
-    #     # Migrate the component data using the provided function
-    #     migrated_data = _migrate_component(cursor, db, parent, TPfield, svm0, Us3d, Vp1d, Vs1d, control)
-    #     # Timing code (for testing; remove if not needed)
-    #     t0 = time.time()
-    #     # Accumulate the migrated data (the addition operator is assumed to work as in the original code)
-    #     print("Time to sum this plane wave component =", time.time() - t0)
-    #     return migrated_data
-    #
-    # # Create an RDD from gridid_list using Spark to avoid high memory consumption on the driver
-    # rdd = spark_context.parallelize(gridid_list)
-    # # Process each gridid in parallel and reduce (sum) the results using the built-in addition operator
-    # migrated_image = rdd.map(process_gridid).reduce(lambda a, b: a + b)
-    #
-    # return migrated_image
-    # from mspasspy.client import Client
-    # import time, os    from mspasspy.client import Client
-    #     import time
-    #
-    #     # Create a Spark client without specifying scheduler_host
-    #     client = Client(scheduler="spark")
-    #     spark_context = client.get_scheduler()
-    #
-    #     def process_gridid(gridid):
-    #         # Print the current gridid being processed
-    #         print("Working on gridid=", gridid)
-    #         cursor = query_by_id(gridid, db, source_id)
-    #         # Migrate the component data using the provided function
-    #         migrated_data = _migrate_component(cursor, db, parent, TPfield, svm0, Us3d, Vp1d, Vs1d, control)
-    #         # Timing code (for testing; remove if not needed)
-    #         t0 = time.time()
-    #         # Accumulate the migrated data (the addition operator is assumed to work as in the original code)
-    #         print("Time to sum this plane wave component =", time.time() - t0)
-    #         return migrated_data
-    #
-    #     # Create an RDD from gridid_list using Spark to avoid high memory consumption on the driver
-    #     rdd = spark_context.parallelize(gridid_list)
-    #     # Process each gridid in parallel and reduce (sum) the results using the built-in addition operator
-    #     migrated_image = rdd.map(process_gridid).reduce(lambda a, b: a + b)
-    #
-    #     return migrated_image
-
-    # from dask.distributed import as_completed, performance_report
-    # from mspasspy.client import Client
-    # import os
-    # # Create Dask client using mspass client
-    # client = Client(scheduler="dask")
-    # dask_client = client.get_scheduler()
-    # timestamp = time.strftime("%Y%m%d_%H%M%S")
-    # folder = "./dask_reports"
-    # if not os.path.exists(folder):
-    #     os.makedirs(folder)
-    #
-    # with performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
-    #     futures_list = []
-    #     for gridid in gridid_list:
-    #         print("Submitting job for gridid=", gridid)
-    #         cursor = query_by_id(gridid, db, source_id)
-    #         f = dask_client.submit(_migrate_component, cursor, db, parent, TPfield,
-    #                                svm0, Us3d, Vp1d, Vs1d, control)
-    #         futures_list.append(f)
-    #
-    #     for future in as_completed(futures_list):
-    #         migrated_data = future.result()
-    #         t0 = time.time()
-    #         migrated_image += migrated_data
-    #         print("Time to sum this plane wave component =", time.time() - t0)
-    #
-    # these are all huge and need to be pushed to all workers once to 
-    # reduce serialization overhead
     if parallel:
         f_parent = dask_client.scatter(parent,broadcast=True)
         f_TPfield = dask_client.scatter(TPfield,broadcast=True)
@@ -535,38 +496,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
         # this one isn't that large but probably better pushed this way
         f_control = dask_client.scatter(control,broadcast=True)
 
-    # for performance testing - will be removed for release
-    import time, os
-
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    folder = "./dask_reports"
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-    # serial version for testing - remove after testing
-    """
-    i=0
-    for gridid in gridid_list:
-        print("Working on gridid=",gridid)
-        t0 = time.time()
-        query = {"telecluster_id": sid, "gridid": gridid}
-        cursor = db.wf_Seismogram.find(query)
-        pwensemble = db.read_data(cursor, collection="wf_Seismogram")
-        cursor.close()
-        t1 = time.time()
-        pwdgrid = migrate_component(pwensemble, parent, TPfield, svm0, Us3d,
-                                    Vp1d, Vs1d, control)
-        t2=time.time()
-        if i==0:
-            migrated_image = pwdgrid
-        else:
-            migrated_image += pwdgrid
-        t3 = time.time()
-        print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
-        print("Time to sum grids=",t3-t2)
-        i += 1
-    """
-    # from dask.distributed import as_completed
-    #with ddist.performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
     if parallel:
         futures_list = []
         sidkey = source_collection + "_id"
