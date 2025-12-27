@@ -118,7 +118,7 @@ py::class_<EventCatalog>(m,"EventCatalog","In memory earthquake source data mana
   .def("advance",&EventCatalog::advance,"Advance the current event pointer by number of slots requested")
   .def("sector_subset",&EventCatalog::subset<SectorTest>,"Subset using a radial grid")
 ;
-py::class_<RayPathSphere>(m,"RayPathSpher","Encapsulates concept of a ray path in a spherical earth")
+py::class_<RayPathSphere>(m,"RayPathSphere","Encapsulates concept of a ray path in a spherical earth")
     .def(py::init<const int>())
     .def(py::init<const pwmig::seispp::VelocityModel_1d&,
        const double, 
