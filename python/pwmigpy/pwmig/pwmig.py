@@ -250,7 +250,7 @@ def compute_3dfieldsize(f)->int:
     are always tiny compared to the field data. 
     """
     ngridpoints=f.n1*f.n2*f.n3
-    if f.hasattr("nv"):
+    if hasattr(f,"nv"):
         nv=f.nv
     else:
         nv=1
@@ -471,7 +471,9 @@ def migrate_event(mspass_client, dbname, sid, pf,
         print("Starting to compute incident P wave raygrid volume")
     svm0 = BuildSlownessGrid(parent, source_lat, source_lon, source_depth)
     TPfield = ComputeIncidentWaveRaygrid(parent, border_pad,
-                                         Up3d, Vp1d, svm0, zmax * zpad, tmax, dt, zdecfac, True)
+                                         Up3d, Vp1d, svm0, 
+                                           zmax * zpad, tmax, dt, 
+                                             zdecfac, True)
     del Up3d
     if verbose:
         print("Finished computatio in ",time.time()-t0," seconds")
