@@ -11,7 +11,7 @@ from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth, kilometers2degrees
 
 from pwmigpy.ccore.gclgrid import (GCLvectorfield3d)
-
+from pwmigpy.ccore.seispp import RayPathSphere
 from pwmigpy.ccore.pwmigcore import (SlownessVectorMatrix,
                                      ComputeIncidentWaveRaygrid,
                                      migrate_one_seismogram,
@@ -20,6 +20,217 @@ from pwmigpy.db.database import (vmod1d_dbread_by_name,
                                  GCLdbread_by_name)
 from pwmigpy.utility.earthmodels import Velocity3DToSlowness
 
+class worker_memory_estimator:
+    """
+    Utility class used to estimate memory footprint for a run of pwmig 
+    from database content and parameters defined in pf that will 
+    be used in running pwmig.   Constructor is initialization here. 
+    Standard use is to instantiate and instance of this class.  
+    If successful then run the report method to print results in a 
+    clean report forma. 
+    
+    :param db:  database handle for db to be used to drive pwmig
+    :param sid:  source is to use as pattern for checking data ensemble 
+      sizes.  subsets by source_collection_id matching this value.  
+    :param pf:   AntelopePf object created from pf file defining 
+      this run of pwmig.   Normally created from "pwmig.pf".   
+
+    """
+    def __init__(self,db,sid,pf,source_collection="telecluster"):
+        self.ensemble_size = self.input_data_size(db,sid,source_collection)
+        # this 2d grid has size data that impacts most of the memory 
+        # use.  We read it here as does pwmig
+        parent_grid_name = pf.get_string("Parent_GCLgrid_Name");
+        parent = GCLdbread_by_name(db, parent_grid_name, object_type="pwmig::gclgrid::GCLgrid")
+        # inlined as it is pretty trivial
+        self.parentsize = 8*3*parent.n1*parent.n2
+        self.wrgsize = self.worker_raygrid_size(db,pf,parent)
+        self.vmod3dsize = self.vel3dfield_size(db,pf)
+        self.imggridsize = self.imagegrid_size(db,pf)
+        self.incidentgridsize = self.incident_ptimegrid_size(db,parent,pf)
+        self.ugridsize = self.slowness_grid_size(parent)
+    @staticmethod
+    def input_data_size(db,sid,source_collection):
+        """
+        Set an estimate of the memory required to store an ensembled 
+        for sid.   Internal to this class but could be used in isolation.,
+        """
+        idname = source_collection + "_id"
+        query = {idname : sid,"gridid" : 0}
+        doc = db.wf_Seismogram.find_one(query)
+        # pwstack produces seismograms of the same size for all outputs 
+        # so we only need the first one to make an estimate
+        # firther the ensemble size is fixed for all components so 
+        # we can compute it thsi way
+        #query["gridid"] = doc["gridid"]
+        n_members = db.wf_Seismogram.count_documents(query)
+        # reading one member and using sizeof will give a more accurate 
+        # memory estimate than just using the sample size
+        d = db.read_data(doc,collection="wf_Seismogram")
+        dsize=d.__sizeof__()
+        input_data_size_bytes = n_members*dsize
+        return input_data_size_bytes
+    @staticmethod
+    def worker_raygrid_size(db,pf,parent):
+        """
+        Computes an estimate of the size of the raygrid computed 
+        internally in each worker.
+        
+        Internal to this class but could be used in isolation.,
+        """
+        # this computation is modeled on C++ function Build_GCLraygrid
+        n1 = parent.n1
+        n2 = parent.n2
+        # this is a nominal slowness  needed to build a nominal raypath 
+        # of typcal size.  This is an approximation but reasonable for 
+        # the purpose here
+        u_nominal = 1.0/8.0
+        zmax = pf.get_double("maximum_depth")
+        tmax = pf.get_double("maximum_time_lag")
+        # dux=pf.get_double("slowness_grid_deltau")
+        dt = pf.get_double("data_sample_interval")
+        Smodel1d_name = pf.get_string("S_velocity_model1d_name");
+        Vs1d = vmod1d_dbread_by_name(db, Smodel1d_name)
+        ray = RayPathSphere(Vs1d,u_nominal,zmax,tmax,dt,"t")
+        n3=ray.npts
+        # these grids use a 5 component vector.  DAta + domega and grt weight
+        nv=5
+        npts_grid = n1*n2*n3*nv
+        coords_size = 3*n1*n2*n3
+        # return size in bytes
+        return 8*(npts_grid+coords_size)
+    @staticmethod
+    def vel3dfield_size(db,pf,collection="GCLfielddata"):
+        """
+        Computes an estimate of the size of the grid used to store the 
+        3d model for P and S wave travel times.  
+        
+        Internal to this class but could be used in isolation.,
+        
+        Note this one needs to return 0 if the model name is not defined
+        """
+        Pvel3dname = pf.get_string('P_velocity_model3d_name') 
+        query={ "name" : Pvel3dname,
+               "object_type" : "pwmig::gclgrid::GCLscalarfield3d"}
+        doc = db[collection].find_one(query)
+        if doc:
+            n1 = doc["n1"]
+            n2 = doc["n2"]
+            n3 = doc["n3"]
+            data_size = n1*n2*n3
+            coords_size = 3*n1*n2*n3
+            return 8*(data_size+coords_size)
+        else:
+            message = "worker_memory_estimator.vel3dfield_size:  "
+            message += "no documents found with name="+Pvel3dname
+            print(message)
+            print("Check pf file if you intend to use a 3d earth model")
+            return 0
+    
+    @staticmethod
+    def incident_ptimegrid_size(db,parent,pf):
+        borderpad = pf.get_long("border_padding")
+        n1=parent.n1 + 2*borderpad
+        n2=parent.n2 + 2*borderpad
+        # n3 size has to handle padding and decimation
+        zmax = pf.get_double("maximum_depth")
+        tmax = pf.get_double("maximum_time_lag")
+        dt = pf.get_double("data_sample_interval")
+        zdecfac = pf.get_long("Incident_TTgrid_zdecfac")
+        zpad = pf.get_double("depth_padding_multiplier")
+        Pmodel1d_name = pf.get_string("P_velocity_model1d_name");
+        Vp1d = vmod1d_dbread_by_name(db, Pmodel1d_name)
+        u_nominal = 1.0/12.0
+        ray = RayPathSphere(Vp1d,u_nominal,zmax*zpad,tmax,dt,"t")
+        n3 = round(float(ray.npts)/zdecfac)
+        coords_size = 8*3*n1*n2*n3
+        data_size = 8*n1*n2*n3
+        return coords_size + data_size
+
+    @staticmethod
+    def imagegrid_size(db,pf,collection="GCLfielddata"):
+        """
+        Compute and store an estimate of the size of the image grid 
+        used to store the final image in frontend script.  
+        
+        Internal to this class but could be used in isolation.,
+        """
+        imgname = pf.get_string("stack_grid_name")
+        query = {"name" : imgname,
+                 "object_type" : "pwmig::gclgrid::GCLgrid3d"}
+        doc = db[collection].find_one(query)
+        if doc:
+            n1 = doc["n1"]
+            n2 = doc["n2"]
+            n3 = doc["n3"]
+            # image has 5 components at each node
+            data_size = n1*n2*n3*5
+            coords_size = 3*n1*n2*n3
+            return 8*(data_size+coords_size)
+        else:
+            message = "worker_memory_estimator.imagegrid_size:  "
+            message += "no documents found with name="+imgname
+            raise RuntimeError(message)
+            
+            
+    @staticmethod
+    def slowness_grid_size(parent):
+        """
+        Compute and store an estimate of the size of the 2d slowness grid 
+        used in pwmig.  This object is usually sall compared to any f the 
+        3d fields but is posted by the report method.
+        """
+        n1=parent.n1
+        n2=parent.n2
+        # each slowness vector has 2 components
+        data_size = 2*n1*n2
+        # slowness grid doesn is made conguent with parent so has no
+        # coordinate arrays
+        return 8*data_size
+    
+    def report(self,print_report=True):
+        """
+        Generate a nicely formatted report from the memory 
+        size data computed on construction.   This is the primary 
+        purpose of this class.  The method internally generates a 
+        string holding the report.   When the print_report is 
+        True (default) that string is pushed to the python 
+        print function and returns a None.  When False the 
+        report string is returned.  The False options provides more 
+        flexibility in how the output is handled.   
+        """
+        report = "////////////// pwmig run time data memory use estimates////////////////\n"
+        report += "////////////// Major pwmig data object sizes (Mbytes) ///////////////////\n"
+        report += "Approximate average ensemble size={}\n".format(self.ensemble_size/1e6)
+        report += "pseudostation 2d grid size (parent symbol in code)={}\n".format(self.parentsize/1e6)
+        report += "3d velocity model field={}\n".format(self.vmod3dsize/1e6)
+        report += "Incident wave travel time field size={}\n".format(self.incidentgridsize/1e6)
+        report += "2d slowness array grid size={}\n".format(self.ugridsize/1e6)
+        report += "raygrid created for each plane wave component size={}\n".format(self.wrgsize/1e6)
+        report += "Image grid size={}\n".format(self.imggridsize/1e6)
+        report += "////////////// estimaed memory use per worker  ////////////////////////\n"
+        workersize = self.ensemble_size 
+        workersize += self.parentsize
+        workersize += self.vmod3dsize 
+        workersize += self.incidentgridsize
+        workersize += self.ugridsize
+        workersize += self.wrgsize
+        report += "Minimum memory use={}\n".format(workersize/1e6)
+        report += "////////////// estimated memory use of frontend process////////////////\n"
+        fesize = self.parentsize
+        fesize += self.vmod3dsize 
+        fesize += self.incidentgridsize
+        fesize += self.ugridsize
+        fesize += self.imggridsize
+        report += "Base size without worker data in transit={}\n".format(fesize/1e6)
+        report += "Size of raygrid data returned by each worker={}\n".format(self.wrgsize/1e6)
+        report += "Note:  actual use may buffer multiple copies of raygrid data being returned by workers\n"
+        report += "///////////////////////////////////////////////////////////////////////\n"
+        if print_report:
+            print(report)
+            return None
+        else:
+            return report
 
 # from pwmigpy.ccore.seispp import VelocityModel_1d
 
@@ -261,7 +472,8 @@ def compute_3dfieldsize(f)->int:
 def migrate_event(mspass_client, dbname, sid, pf, 
                     source_collection="telecluster",
                     parallel=True,
-                    verbose=False):
+                    verbose=False,
+                    dryrun=False):
     """
     Top level map function for pwmig.   pwmig is a "prestack" method
     meaning we migrate data from individual source regions (always best
@@ -315,6 +527,11 @@ def migrate_event(mspass_client, dbname, sid, pf,
         dask_client = None
         if verbose:
             print("Wanring:  running serial mode which may run for a long time")
+    # force verbose if dryrun is enabled
+    if dryrun:
+        wmem = worker_memory_estimator(db, sid, pf)
+        wmem.report()
+        exit(1)
     # Freeze use of source collection for source_id consistent with MsPASS
     # default schema.
     doc = db[source_collection].find_one({'_id': sid})
@@ -372,7 +589,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
     # container (what it returns).   These are a subset of those extracted
     # in this function.  This should, perhaps, be passed into this function
     # but the cost of extracting it from pf in this function is assumed tiny
-    base_message = "class pwmig constructor:  "
+    base_message = "migrate_evnet:  :  "
     border_pad = pf.get_long("border_padding")
     # This isn't used in this function, but retain this for now for this test
     # This test will probably be depricated when we the pfmig_verify functions is
@@ -439,8 +656,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
         # convert to slowness
         Up3d = Velocity3DToSlowness(Up3d)
     else:
-        message=""
-        raise MsPASSError()
+        message="missing required value for 3d P model name\n"
+        message += "defined slowness model with key=P_slowness_model_name\n"
+        message += "or velocity model with key=P_velocity_model3d_name"
+        raise MsPASSError(message,ErrorSeverity.Fatal)
     if "S_slowness_model_name" in pf:
         us3dname = pf.get_string('S_slowness_model_name')
         Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
@@ -450,8 +669,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
         # convert to slowness
         Us3d = Velocity3DToSlowness(Us3d)
     else:
-        message=""
-        raise MsPASSError()
+        message="missing required value for 3d S odel name\n"
+        message += "defined slowness model with key=S_slowness_model_name\n"
+        message += "or velocity model with key=S_velocity_model3d_name"
+        raise MsPASSError(message,ErrorSeverity.Fatal)
     # Similar for 1d models.   The velocity name key is the pf here is the
     # same though since we don't convert to slowness in a 1d model
     # note the old program used files.  Here we store these in mongodb
@@ -521,6 +742,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
         # Binary tree reduction for parallel accumulation with timely garbage collection
         def add_images(a, b):
             # Function to add two migrated image components.
+            print("Summing raygrid into image volume")
             return a + b
 
         while len(futures_list) > 1:
@@ -556,7 +778,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
             else:
                 migrated_image += pwdgrid
             t3 = time.time()
-            print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
+            print("Time to read data=",t1=t0) 
+            print("Time to run migrate_component=",t2-t1)
             print("Time to sum grids=",t3-t2)
             i += 1
         
