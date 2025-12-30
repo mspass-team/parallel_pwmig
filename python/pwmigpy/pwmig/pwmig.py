@@ -744,9 +744,15 @@ def migrate_event(mspass_client, dbname, sid, pf,
         def add_images(a, b):
             # Function to add two migrated image components.
             ddist.print("Summing raygrid into image volume")
-            ddist("a.name=",a.name," a.n3=",a.n3)
-            ddist("b.name=",b.name," b.n3=",b.n3)
-            return a + b
+            ddist.print("a.name=",a.name," a.n3=",a.n3)
+            ddist.print("b.name=",b.name," b.n3=",b.n3)
+            if a.name=="pwmigimage":
+                a += b
+                return a
+            else:
+                b += a
+                return b
+            #return a + b
 
         while len(futures_list) > 1:
             new_futures = []
