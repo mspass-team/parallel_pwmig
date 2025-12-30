@@ -418,7 +418,7 @@ def _migrate_component(query,dbname, parent, TPfield, VPsvm, Us3d, Vp1d, Vs1d, c
     pwdgrid = migrate_component(pwensemble, parent, TPfield, VPsvm, Us3d,
                                 Vp1d, Vs1d, control)
     t2 = time.time()
-    print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
+    ddist.print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
     return pwdgrid
     # just return a nessage for debugging
     #del pwdgrid
@@ -580,6 +580,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
     migrated_image = GCLvectorfield3d(imggrid, 5)
     del imggrid
     migrated_image.zero()
+    migrated_image.name="pwmigimage"
     if verbose:
         print("Creeated image grid")
         imagevolsize=compute_3dfieldsize(migrated_image)
@@ -742,7 +743,9 @@ def migrate_event(mspass_client, dbname, sid, pf,
         # Binary tree reduction for parallel accumulation with timely garbage collection
         def add_images(a, b):
             # Function to add two migrated image components.
-            print("Summing raygrid into image volume")
+            ddist.print("Summing raygrid into image volume")
+            ddist("a.name=",a.name," a.n3=",a.n3)
+            ddist("b.name=",b.name," b.n3=",b.n3)
             return a + b
 
         while len(futures_list) > 1:
