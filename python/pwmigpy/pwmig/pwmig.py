@@ -740,6 +740,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
             del x
             print("Finished one")
         """
+        """
         # Binary tree reduction for parallel accumulation with timely garbage collection
         def add_images(a, b):
             # Function to add two migrated image components.
@@ -753,7 +754,16 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 b += a
                 return b
             #return a + b
-
+        """
+        from dask.distributed import as_completed
+        for f in as_completed(futures_list):
+            t0sum=time.time()
+            pwdgrid = f.result()
+            ddist.print("Summing raygrid data into final image field")
+            migrated_image += pwdgrid
+            del pwdgrid
+            ddist.print("Time to accumulate these data in master=",time.time()-t0sum)
+        """
         while len(futures_list) > 1:
             new_futures = []
             for i in range(0, len(futures_list), 2):
@@ -767,6 +777,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
             futures_list = new_futures
 
         migrated_image = futures_list[0].result()
+        """
     else:
         idkey = source_collection + "_id"
         query = {idkey: sid}
