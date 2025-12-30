@@ -51,7 +51,7 @@ PWMIGfielddata migrate_component(ThreeComponentEnsemble& d,
   {
     PWMIGmigrated_seismogram dout;
     // Weird things needed to find something unique in metadata for these data
-    std::cout << m << " "<< d.member[m].get_string("dfile")<<" "<<d.member[m].get_long("foff") << std::endl;
+    //std::cout << m << " "<< d.member[m].get_string("dfile")<<" "<<d.member[m].get_long("foff") << std::endl;
     dout = migrate_one_seismogram(d.member[m], parent, *raygrid, TPgrid,Us3d,
                       Vp1d, Vs1d, control);
     pwdgrid.accumulate(dout);
