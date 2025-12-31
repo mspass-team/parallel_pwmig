@@ -725,7 +725,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
         sidkey = source_collection + "_id"
         # these are used for block submits
         # if this works this variable will become an arg
-        N_submit_buffer=12
+        N_submit_buffer=8
         N_q = len(gridid_list)
         i_q = 0
         for gridid in gridid_list:
@@ -800,7 +800,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
             ddist.print("Time to accumulate these data in master=",time.time()-t0sum)
             if i_q<N_q:
                 print("submitting data for gridid=",gridid[i_q]," to cluster for processing")
-                query = {sidkey: sid, "gridid": gridid[i_q]}
+                query = {sidkey: sid, "gridid": gridid_list[i_q]}
                 new_f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                        f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
                 seq.add(new_f)
