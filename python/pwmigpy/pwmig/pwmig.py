@@ -799,7 +799,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
             del pwdgrid
             ddist.print("Time to accumulate these data in master=",time.time()-t0sum)
             if i_q<N_q:
-                print("submitting data for gridid=",gridid[i_q]," to cluster for processing")
+                print("submitting data for gridid=",gridid_list[i_q]," to cluster for processing")
                 query = {sidkey: sid, "gridid": gridid_list[i_q]}
                 new_f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                        f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
