@@ -797,6 +797,9 @@ def migrate_event(mspass_client, dbname, sid, pf,
             ddist.print("Summing raygrid data into final image field")
             migrated_image += pwdgrid
             del pwdgrid
+            # this seems necessar to force dask to release worker memory 
+            # used by f
+            del f
             ddist.print("Time to accumulate these data in master=",time.time()-t0sum)
             if i_q<N_q:
                 print("submitting data for gridid=",gridid_list[i_q]," to cluster for processing")
