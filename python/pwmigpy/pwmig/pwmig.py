@@ -723,16 +723,22 @@ def migrate_event(mspass_client, dbname, sid, pf,
     if parallel:
         futures_list = []
         sidkey = source_collection + "_id"
+        # these are used for block submits
+        # if this works this variable will become an arg
+        N_submit_buffer=12
+        N_q = len(gridid_list)
+        i_q = 0
         for gridid in gridid_list:
             query = {sidkey: sid, "gridid": gridid}
-            nwf = db.wf_Seismogram.count_documents(query)
             print("Submitting data to cluster defined by this database query: ",query)
-            print("Number of plane Seismogram objects to use as input=",nwf)
             f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                    f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
             #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
             #                       svm0, Us3d, Vp1d, Vs1d, control)
             futures_list.append(f)
+            i_q += 1
+            if i_q >= N_submit_buffer:
+                break
         """
         # used for testing - deleted when fully resolved
         for f in as_completed(futures_list):
@@ -755,6 +761,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 return b
             #return a + b
         """
+        """
         from dask.distributed import as_completed
         for f in as_completed(futures_list):
             t0sum=time.time()
@@ -763,6 +770,43 @@ def migrate_event(mspass_client, dbname, sid, pf,
             migrated_image += pwdgrid
             del pwdgrid
             ddist.print("Time to accumulate these data in master=",time.time()-t0sum)
+        """
+        """
+        Gemini gives this algorithm a terminology called a "moving window pattern"
+        The AI gives a variant of this algorithm with a useful description 
+        when asked "with dask distributed how can you use as_completed to create 
+        a fixed length buffer of futures"  An important variation Gemini 
+        gives we might use if this works as expected is to replace the loop 
+        above with a map consruct:
+            
+            futures_list = client.aap(migrate_component,first_batch,...)
+            
+        where first_batch is the first buffer size in the gridid list.
+        
+        My reduction algorithm below is actually cleaner than what Gemini 
+        suggests.   I also add some diagnostic print statements. 
+        
+        Obviously this block commentshould be deleted if this works as hoped.
+"
+        """
+        from dask.distributed import as_completed
+        seq=as_completed(futures_list)
+        for f in seq:
+            t0sum=time.time()
+            pwdgrid = f.result()
+            ddist.print("Summing raygrid data into final image field")
+            migrated_image += pwdgrid
+            del pwdgrid
+            ddist.print("Time to accumulate these data in master=",time.time()-t0sum)
+            if i_q<N_q:
+                print("submitting data for gridid=",gridid[i_q]," to cluster for processing")
+                query = {sidkey: sid, "gridid": gridid[i_q]}
+                new_f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
+                                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
+                seq.add(new_f)
+                i_q += 1
+            
+            
         """
         while len(futures_list) > 1:
             new_futures = []
