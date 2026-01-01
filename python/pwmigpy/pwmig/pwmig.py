@@ -709,7 +709,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
     key = source_collection + "_id"
     query = {key: sid}
     gridid_list = db.wf_Seismogram.find(query).distinct('gridid')
-
+    """
     if parallel:
         f_parent = dask_client.scatter(parent,broadcast=True)
         f_TPfield = dask_client.scatter(TPfield,broadcast=True)
@@ -719,7 +719,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
         f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
         # this one isn't that large but probably better pushed this way
         f_control = dask_client.scatter(control,broadcast=True)
-
+    """
     if parallel:
         futures_list = []
         sidkey = source_collection + "_id"
@@ -731,10 +731,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
         for gridid in gridid_list:
             query = {sidkey: sid, "gridid": gridid}
             print("Submitting data to cluster defined by this database query: ",query)
-            f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
-                                   f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
-            #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
-            #                       svm0, Us3d, Vp1d, Vs1d, control)
+            #f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
+            #                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
+            f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
+                                   svm0, Us3d, Vp1d, Vs1d, control)
             futures_list.append(f)
             i_q += 1
             if i_q >= N_submit_buffer:
@@ -804,8 +804,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
             if i_q<N_q:
                 print("submitting data for gridid=",gridid_list[i_q]," to cluster for processing")
                 query = {sidkey: sid, "gridid": gridid_list[i_q]}
-                new_f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
-                                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
+                #new_f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
+                #                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
+                new_f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
+                                       svm0, Us3d, Vp1d, Vs1d, control)
                 seq.add(new_f)
                 i_q += 1
             
