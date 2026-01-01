@@ -20,6 +20,12 @@ from pwmigpy.db.database import (vmod1d_dbread_by_name,
                                  GCLdbread_by_name)
 from pwmigpy.utility.earthmodels import Velocity3DToSlowness
 
+import ctypes
+def trim_memory():
+    libc = ctypes.CDLL("libc.so.6")
+    return libc.malloc_trim(0)
+
+
 class worker_memory_estimator:
     """
     Utility class used to estimate memory footprint for a run of pwmig 
@@ -799,7 +805,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
             del pwdgrid
             # this seems necessar to force dask to release worker memory 
             # used by f
-            del f
+            del f   
+            dask_client.run(trim_memory)
             ddist.print("Time to accumulate these data in master=",time.time()-t0sum)
             if i_q<N_q:
                 print("submitting data for gridid=",gridid_list[i_q]," to cluster for processing")
