@@ -423,6 +423,7 @@ def _migrate_component(query,dbname, parent, TPfield, VPsvm, Us3d, Vp1d, Vs1d, c
     t1 = time.time()
     pwdgrid = migrate_component(pwensemble, parent, TPfield, VPsvm, Us3d,
                                 Vp1d, Vs1d, control)
+    del pwensemble
     t2 = time.time()
     ddist.print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
     return pwdgrid
@@ -801,7 +802,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
             t0sum=time.time()
             pwdgrid = f.result()
             ddist.print("Summing raygrid data into final image field")
-            migrated_image += pwdgrid
+            migrated_image += GCLvectorfield3d(pwdgrid)
             del pwdgrid
             # this seems necessar to force dask to release worker memory 
             # used by f
