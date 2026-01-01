@@ -802,10 +802,11 @@ def migrate_event(mspass_client, dbname, sid, pf,
             t0sum=time.time()
             pwdgrid = f.result()
             ddist.print("Summing raygrid data into final image field")
-            migrated_image += GCLvectorfield3d(pwdgrid)
+            migrated_image += pwdgrid
             del pwdgrid
             # this seems necessar to force dask to release worker memory 
             # used by f
+            dask_client.cancel(f)
             del f   
             dask_client.run(trim_memory)
             ddist.print("Time to accumulate these data in master=",time.time()-t0sum)
