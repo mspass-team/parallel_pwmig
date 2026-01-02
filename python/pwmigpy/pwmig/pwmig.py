@@ -1,7 +1,8 @@
 import time  # for testing only - remove when done
-
 import math
-import dask
+from pathlib import Path
+import pickle
+
 import dask.distributed as ddist
 from mspasspy.ccore.utility import (Metadata,
                                     MsPASSError,
@@ -18,8 +19,7 @@ from pwmigpy.ccore.pwmigcore import (SlownessVectorMatrix,
                                      migrate_component)
 from pwmigpy.db.database import (vmod1d_dbread_by_name,
                                  GCLdbread_by_name)
-from pwmigpy.utility.earthmodels import Velocity3DToSlowness
-import pickle
+from pwmigpy.utility.earthmodels import Velocity3DToSlowness 
 
 
 class worker_memory_estimator:
@@ -365,7 +365,6 @@ def query_by_id(gridid, db, source_id, collection='wf_Seismogram'):
     return collection.find(query)
 
 
-@dask.delayed
 def _set_incident_slowness_metadata(d, svm):
     """
     Internal function used in map to set metadata fields in
@@ -397,7 +396,6 @@ def migrate_one_seismogram_python(*args):
     return migrate_one_seismogram(*args)
 
 
-@dask.delayed
 def accumulate_python(grid, migseis):
     grid.accumulate(migseis)
     return grid
@@ -506,12 +504,27 @@ def compute_3dfieldsize(f)->int:
     total_arraysize = 3*ngridpoints + fielddatasize
     return 8*total_arraysize
 
+def make_pickle_path(savedir,sid)->str:
+    """
+    Create full path from directory and a source id,   The 
+    source id is converted to a string and a suffix appended. 
+    Assumes the directory is a full path created with resolve 
+    earlier.  Returns this path name string
+
+    """
+    suffix = ".migdata"
+    result = savedir + "/" + str(sid) + suffix
+    return result
+    
 def migrate_event(mspass_client, dbname, sid, pf, 
                     source_collection="telecluster",
                     parallel=True,
                     sliding_window_size=None,
                     verbose=False,
-                    dryrun=False):
+                    dryrun=False,
+                    accumulate=True,
+                    save_components=False,
+                    save_component_directory=None):
     """
     Top level map function for pwmig.   pwmig is a "prestack" method
     meaning we migrate data from individual source regions (always best
@@ -557,6 +570,20 @@ def migrate_event(mspass_client, dbname, sid, pf,
     must understand how all that works.  
 
     """
+    if not accumulate or save_components:
+        message = "migrate_event:  illegal kwarg combination\n"
+        message += "either accumulate or save_cmponents must be True"
+        raise ValueError(message)
+    if save_components and (not parallel):
+        message = "migrate_event:  illegal kwarg combination\n"
+        message += "save_components options is not supported when parallel is set False"
+        raise ValueError(message)
+    if save_components:
+        if save_component_directory is None:
+            save_dir="./"
+        else:
+            save_dir=save_component_directory
+        savepath = Path(save_dir).resolve()
     if parallel:
         db = mspass_client.get_database(dbname)
         dask_client = mspass_client.get_scheduler()
@@ -617,16 +644,17 @@ def migrate_event(mspass_client, dbname, sid, pf,
     # components.   We assume it was constructed earlier and saved
     # to the database.  This parameter is outside control because it
     # is only used in this function
-    imgname = pf.get_string("stack_grid_name")
-    imggrid = GCLdbread_by_name(db, imgname, object_type="pwmig::gclgrid::GCLgrid3d")
-    migrated_image = GCLvectorfield3d(imggrid, 5)
-    del imggrid
-    migrated_image.zero()
-    migrated_image.name="pwmigimage"
-    if verbose:
-        print("Creeated image grid")
-        imagevolsize=compute_3dfieldsize(migrated_image)
-        print("Size (bytes) of image grid used for this run=",imagevolsize)
+    if accumulate:
+        imgname = pf.get_string("stack_grid_name")
+        imggrid = GCLdbread_by_name(db, imgname, object_type="pwmig::gclgrid::GCLgrid3d")
+        migrated_image = GCLvectorfield3d(imggrid, 5)
+        del imggrid
+        migrated_image.zero()
+        migrated_image.name="pwmigimage"
+        if verbose:
+            print("Creeated image grid")
+            imagevolsize=compute_3dfieldsize(migrated_image)
+            print("Size (bytes) of image grid used for this run=",imagevolsize)
 
     # This function extracts parameters passed around through a Metadata
     # container (what it returns).   These are a subset of those extracted
@@ -716,7 +744,12 @@ def migrate_event(mspass_client, dbname, sid, pf,
                                              zdecfac, True)
     del Up3d
 
-
+    if save_components:
+        savepath = make_pickle_path(savepath, sid)
+    else:
+        # note _migrate_component takes None to mean do not save 
+        # migrated image volume to a file
+        savepath=None
     # The loop over plane wave components is driven by a list of gridids
     # retried this way.   We also need, however, to subset by source id.  
     # some complexity here to handle source or telecluster as collection 
@@ -749,7 +782,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
             if verbose:
                 print("Submitting data for gridid=",gridid," for processing")
             f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
-                                   f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
+                                   f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
+                                   filename=savepath)
             #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
             #                       svm0, Us3d, Vp1d, Vs1d, control)
             futures_list.append(f)
@@ -762,8 +796,9 @@ def migrate_event(mspass_client, dbname, sid, pf,
         for f in seq:
             t0sum=time.time()
             pwdgrid = f.result()
-            print("Summing raygrid data into final image field")
-            migrated_image += pwdgrid
+            if accumulate:
+                print("Summing raygrid data into final image field")
+                migrated_image += pwdgrid
             del pwdgrid
             # this seems necessar to force dask to release worker memory 
             # used by f
@@ -775,7 +810,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
                     print("Submitting data for gridid=",gridid," for processing")
                 query = {sidkey: sid, "gridid": gridid_list[i_q]}
                 new_f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
-                                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
+                                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
+                                       filename=savepath)
                 seq.add(new_f)
                 i_q += 1
             
