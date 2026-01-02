@@ -20,11 +20,6 @@ from pwmigpy.db.database import (vmod1d_dbread_by_name,
                                  GCLdbread_by_name)
 from pwmigpy.utility.earthmodels import Velocity3DToSlowness
 
-import ctypes
-def trim_memory():
-    libc = ctypes.CDLL("libc.so.6")
-    return libc.malloc_trim(0)
-
 
 class worker_memory_estimator:
     """
@@ -407,7 +402,16 @@ def accumulate_python(grid, migseis):
     return grid
 
 
-def _migrate_component(query,dbname, parent, TPfield, VPsvm, Us3d, Vp1d, Vs1d, control):
+def _migrate_component(query,
+                        dbname, 
+                         parent, 
+                          TPfield, 
+                           VPsvm, 
+                            Us3d, 
+                             Vp1d, 
+                              Vs1d, 
+                               control,
+                                verbose=False):
     """
     This small function is largely a wrapper for the C++ function
     with the same name sans the _ (i.e. migrate_component).
@@ -479,6 +483,7 @@ def compute_3dfieldsize(f)->int:
 def migrate_event(mspass_client, dbname, sid, pf, 
                     source_collection="telecluster",
                     parallel=True,
+                    sliding_window_size=None,
                     verbose=False,
                     dryrun=False):
     """
@@ -529,6 +534,11 @@ def migrate_event(mspass_client, dbname, sid, pf,
     if parallel:
         db = mspass_client.get_database(dbname)
         dask_client = mspass_client.get_scheduler()
+        if sliding_window_size is not None:
+            N_submit_buffer = sliding_window_size
+        else:
+            num_workers = len(dask_client.scheduler_info()['workers'])
+            N_submit_buffer = 2*num_workers
     else:
         db = mspass_client.get_database(dbname)
         dask_client = None
@@ -567,7 +577,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
         print("Working on source with latitude=",source_lat,
               " lon=",source_lon,
               ", and depth=",source_depth)
-    # source_time=doc['time']
 
     # This function is the one that extracts parameters required in
     # what were once inner loops of this program.  As noted there are
@@ -626,30 +635,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
     # dux=pf.get_double("slowness_grid_deltau")
     dt = pf.get_double("data_sample_interval")
     zdecfac = pf.get_long("Incident_TTgrid_zdecfac")
-    # duy=dux
-    # dumax=pf.get_double("delta_slowness_cutoff")
-    # dz=pf.get_double("ray_trace_depth_increment")
-    # rcomp_wt=pf.get_bool("recompute_weight_functions")
-    # nwtsmooth=pf.get_long("weighting_function_smoother_length")
-    # if nwtsmooth<=0:
-    #    smooth_wt=False
-    # else:
-    #    smooth_wt=True
-    # taper_length=pf.get_double("taper_length_turning_rays")
-    # Parameters for handling elevation statics.
-    # These are depricated because we now assume statics are applied with
-    # an separate mspass function earlier in the workflow
-    # ApplyElevationStatics=pf.get_bool("apply_elevation_statics")
-    # static_velocity=pf.get_double("elevation_static_correction_velocity")
-    # use_grt_weights=pf.get_bool("use_grt_weights")
-    # use_3d_vmodel=pf.get_bool("use_3d_velocity_model")
-    # The C++ version of pwmig loaded velocity model data and constructed
-    # slowness grids from that.  Here we always use a 3D slowness model
-    # loaded from the database using the new gclgrid library that
-    # is deriven by mongodb.  Conversion from velocity to slowness and
-    # building on from a 1d model is considered a preprocessing step
-    # to assure the following loads will succeed.
-    # WARNING - these names are new and not in any old pf files driving C++ version
     
     # load the slowness field directly if it is define.  If not try to 
     # derive alternate tag of a velocity fieldl name
@@ -704,10 +689,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
                                            zmax * zpad, tmax, dt, 
                                              zdecfac, True)
     del Up3d
-    if verbose:
-        print("Finished computatio in ",time.time()-t0," seconds")
-        ttgsize=compute_3dfieldsize(TPfield)
-        print("Size in bytes of 3d scalar volue=",ttgsize)
+
 
     # The loop over plane wave components is driven by a list of gridids
     # retried this way.   We also need, however, to subset by source id.  
@@ -717,6 +699,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
     query = {key: sid}
     gridid_list = db.wf_Seismogram.find(query).distinct('gridid')
     if parallel:
+        # use of scatter here is known to significantly improve 
+        # performance at the cost of some mile complexity
+        # this avoids needing to serialize each of thes on each submit 
+        # line below
         f_parent = dask_client.scatter(parent,broadcast=True)
         f_TPfield = dask_client.scatter(TPfield,broadcast=True)
         f_svm0 = dask_client.scatter(svm0,broadcast=True)
@@ -734,7 +720,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
         i_q = 0
         for gridid in gridid_list:
             query = {sidkey: sid, "gridid": gridid}
-            print("Submitting data to cluster defined by this database query: ",query)
+            if verbose:
+                print("Submitting data for gridid=",gridid," for processing")
             f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                    f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
             #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
@@ -743,96 +730,29 @@ def migrate_event(mspass_client, dbname, sid, pf,
             i_q += 1
             if i_q >= N_submit_buffer:
                 break
-        """
-        # used for testing - deleted when fully resolved
-        for f in as_completed(futures_list):
-            x=f.result()
-            del x
-            print("Finished one")
-        """
-        """
-        # Binary tree reduction for parallel accumulation with timely garbage collection
-        def add_images(a, b):
-            # Function to add two migrated image components.
-            ddist.print("Summing raygrid into image volume")
-            ddist.print("a.name=",a.name," a.n3=",a.n3)
-            ddist.print("b.name=",b.name," b.n3=",b.n3)
-            if a.name=="pwmigimage":
-                a += b
-                return a
-            else:
-                b += a
-                return b
-            #return a + b
-        """
-        """
-        from dask.distributed import as_completed
-        for f in as_completed(futures_list):
-            t0sum=time.time()
-            pwdgrid = f.result()
-            ddist.print("Summing raygrid data into final image field")
-            migrated_image += pwdgrid
-            del pwdgrid
-            ddist.print("Time to accumulate these data in master=",time.time()-t0sum)
-        """
-        """
-        Gemini gives this algorithm a terminology called a "moving window pattern"
-        The AI gives a variant of this algorithm with a useful description 
-        when asked "with dask distributed how can you use as_completed to create 
-        a fixed length buffer of futures"  An important variation Gemini 
-        gives we might use if this works as expected is to replace the loop 
-        above with a map consruct:
-            
-            futures_list = client.aap(migrate_component,first_batch,...)
-            
-        where first_batch is the first buffer size in the gridid list.
         
-        My reduction algorithm below is actually cleaner than what Gemini 
-        suggests.   I also add some diagnostic print statements. 
         
-        Obviously this block commentshould be deleted if this works as hoped.
-"
-        """
-        from dask.distributed import as_completed
-        seq=as_completed(futures_list)
+        seq=ddist.as_completed(futures_list)
         for f in seq:
             t0sum=time.time()
             pwdgrid = f.result()
-            ddist.print("Summing raygrid data into final image field")
+            print("Summing raygrid data into final image field")
             migrated_image += pwdgrid
             del pwdgrid
             # this seems necessar to force dask to release worker memory 
             # used by f
             dask_client.cancel(f)
             del f   
-            #dask_client.run(trim_memory)
-            ddist.print("Time to accumulate these data in master=",time.time()-t0sum)
+            print("Time to accumulate these data in master=",time.time()-t0sum)
             if i_q<N_q:
-                print("submitting data for gridid=",gridid_list[i_q]," to cluster for processing")
+                if verbose:
+                    print("Submitting data for gridid=",gridid," for processing")
                 query = {sidkey: sid, "gridid": gridid_list[i_q]}
                 new_f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                        f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control)
-                #new_f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
-                #                       svm0, Us3d, Vp1d, Vs1d, control)
                 seq.add(new_f)
                 i_q += 1
             
-            
-        """
-        while len(futures_list) > 1:
-            new_futures = []
-            for i in range(0, len(futures_list), 2):
-                if i + 1 < len(futures_list):
-                    # Submit a task to add two futures concurrently.
-                    sum_future = dask_client.submit(add_images, futures_list[i], futures_list[i+1])
-                    new_futures.append(sum_future)
-                else:
-                    # Carry forward the odd future.
-                    new_futures.append(futures_list[i])
-            futures_list = new_futures
-
-        migrated_image = futures_list[0].result()
-        """
     else:
         idkey = source_collection + "_id"
         query = {idkey: sid}
