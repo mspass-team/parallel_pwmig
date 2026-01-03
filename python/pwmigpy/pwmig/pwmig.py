@@ -435,7 +435,15 @@ def _migrate_component(query,
       when True.  
     :param filename:   When defined (default is None which is taken 
       to mean ignore this) each raygrid image is dumped to a file 
-      by this name with pickle.
+      by this name with pickle.  When that is so the pwdgrid is 
+      deleted and the function returns a tuple of [query,foff] where 
+      foff is the starting byte offset where pickle wrote.   That allos 
+      parallel reduction with a directory file created by migrate_event 
+      when run in this mode.
+      
+    :return:  a PWMIGfielddata object that is the migrated raygrid when 
+      filename is not defined.  When filename is defined returns only 
+      a tuple of the form [query,foff]
 
     """
     worker = ddist.get_worker()
@@ -453,8 +461,12 @@ def _migrate_component(query,
     ddist.print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
     if filename is not None:
         with open(filename,"ab") as fh:
+            foff = fh.tell()
             pickle.dump(pwdgrid,fh)
-    return pwdgrid
+            del pwdgrid
+            return [query,foff]
+    else:
+        return pwdgrid
     # just return a nessage for debugging
     #del pwdgrid
     #return "finished ensemble with {} members".format(len(pwensemble.member))
@@ -504,7 +516,7 @@ def compute_3dfieldsize(f)->int:
     total_arraysize = 3*ngridpoints + fielddatasize
     return 8*total_arraysize
 
-def make_pickle_path(savedir,sid)->str:
+def make_pickle_path(savedir,sid,suffix=".migdata")->str:
     """
     Create full path from directory and a source id,   The 
     source id is converted to a string and a suffix appended. 
@@ -512,7 +524,6 @@ def make_pickle_path(savedir,sid)->str:
     earlier.  Returns this path name string
 
     """
-    suffix = ".migdata"
     result = savedir + "/" + str(sid) + suffix
     return result
     
@@ -659,6 +670,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
             print("Creeated image grid")
             imagevolsize=compute_3dfieldsize(migrated_image)
             print("Size (bytes) of image grid used for this run=",imagevolsize)
+    else:
+        pickle_file_offset_list=list()
 
     # This function extracts parameters passed around through a Metadata
     # container (what it returns).   These are a subset of those extracted
@@ -796,11 +809,15 @@ def migrate_event(mspass_client, dbname, sid, pf,
         seq=ddist.as_completed(futures_list)
         for f in seq:
             t0sum=time.time()
-            pwdgrid = f.result()
+            # this s a large grid object when accumulate is true but 
+            # only a tuple otherwise
+            f_result = f.result()
             if accumulate:
                 print("Summing raygrid data into final image field")
-                migrated_image += pwdgrid
-            del pwdgrid
+                migrated_image += f_result
+                del pwdgrid
+            else:
+                pickle_file_offset_list.append(f_result)
             # this seems necessar to force dask to release worker memory 
             # used by f
             dask_client.cancel(f)
@@ -815,6 +832,11 @@ def migrate_event(mspass_client, dbname, sid, pf,
                                        filename=savepath)
                 seq.add(new_f)
                 i_q += 1
+                
+        if save_components:
+            dirfile = make_pickle_path(savepath, sid, suffix="offssets")
+            with open(dirfile,"wb") as fh:
+                pickle.dump(pickle_file_offset_list,fh)
             
     else:
         idkey = source_collection + "_id"
