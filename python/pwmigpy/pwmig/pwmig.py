@@ -584,6 +584,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
         else:
             save_dir=save_component_directory
         savepath = Path(save_dir).resolve()
+        # strangely resolve dores not return a str but a Path object that 
+        # cannot be used with str operators like _ .  Hence this forced 
+        # type conversion
+        savepath = str(savepath)
     if parallel:
         db = mspass_client.get_database(dbname)
         dask_client = mspass_client.get_scheduler()
