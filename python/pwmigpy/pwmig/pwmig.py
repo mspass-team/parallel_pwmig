@@ -606,6 +606,8 @@ def migrate_event(mspass_client, dbname, sid, pf,
             save_dir="./"
         else:
             save_dir=save_component_directory
+        savepath = Path(save_dir)
+        savepath.mkdir(parents=True, exist_ok=True)
         savepath = Path(save_dir).resolve()
         # strangely resolve dores not return a str but a Path object that 
         # cannot be used with str operators like _ .  Hence this forced 
@@ -841,7 +843,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 query = {sidkey: sid, "gridid": gridid_list[i_q]}
                 new_f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                        f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
-                                       filename=savepath, 
+                                       filename=savefile, 
                                        )
                 seq.add(new_f)
                 i_q += 1
