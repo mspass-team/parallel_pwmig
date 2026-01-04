@@ -190,6 +190,23 @@ class worker_memory_estimator:
         # coordinate arrays
         return 8*data_size
     
+    def worker_memory_requirement(self)->dict:
+        """
+        Return the dictionary that can be passed to dask.distributed.submit 
+        as the resource argument to tell the schedler how much memory 
+        the migrate_compnent function is expected to us. 
+        
+        Note the size returned is a lower bound.   Caller may want to 
+        add a fudge factor.  
+        """
+        workersize = self.ensemble_size 
+        workersize += self.parentsize
+        workersize += self.vmod3dsize 
+        workersize += self.incidentgridsize
+        workersize += self.ugridsize
+        workersize += self.wrgsize
+        return { "MEMORY": workersize}
+    
     def report(self,print_report=True):
         """
         Generate a nicely formatted report from the memory 
@@ -211,14 +228,11 @@ class worker_memory_estimator:
         report += "raygrid created for each plane wave component size={}\n".format(self.wrgsize/1e6)
         report += "Image grid size={}\n".format(self.imggridsize/1e6)
         report += "////////////// estimaed memory use per worker  ////////////////////////\n"
-        workersize = self.ensemble_size 
-        workersize += self.parentsize
-        workersize += self.vmod3dsize 
-        workersize += self.incidentgridsize
-        workersize += self.ugridsize
-        workersize += self.wrgsize
+        memdict = self.worker_memory_requirement()
+        workersize  = memdict["MEMORY"]
         report += "Minimum memory use={}\n".format(workersize/1e6)
         report += "////////////// estimated memory use of frontend process////////////////\n"
+        
         fesize = self.parentsize
         fesize += self.vmod3dsize 
         fesize += self.incidentgridsize
@@ -613,10 +627,12 @@ def migrate_event(mspass_client, dbname, sid, pf,
         if verbose:
             print("Wanring:  running serial mode which may run for a long time")
     # force verbose if dryrun is enabled
+    wmem = worker_memory_estimator(db, sid, pf, source_collection)
     if dryrun:
-        wmem = worker_memory_estimator(db, sid, pf)
         wmem.report()
         exit(1)
+    else:
+        memory_resource=wmem.worker_memory_requirement()
     # Freeze use of source collection for source_id consistent with MsPASS
     # default schema.
     doc = db[source_collection].find_one({'_id': sid})
@@ -798,6 +814,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
             f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                    f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
                                    filename=savepath,
+                                   resources = memory_resource,
                                    )
             #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
             #                       svm0, Us3d, Vp1d, Vs1d, control)
@@ -829,12 +846,13 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 query = {sidkey: sid, "gridid": gridid_list[i_q]}
                 new_f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                        f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
-                                       filename=savepath)
+                                       filename=savepath, 
+                                       resources=memory_resource)
                 seq.add(new_f)
                 i_q += 1
                 
         if save_components:
-            dirfile = make_pickle_path(savepath, sid, suffix="offssets")
+            dirfile = make_pickle_path(savepath, sid, suffix="offsets")
             with open(dirfile,"wb") as fh:
                 pickle.dump(pickle_file_offset_list,fh)
             
