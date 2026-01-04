@@ -526,7 +526,7 @@ def compute_3dfieldsize(f)->int:
     total_arraysize = 3*ngridpoints + fielddatasize
     return 8*total_arraysize
 
-def make_pickle_path(savedir,sid,suffix=".migdata")->str:
+def make_pickle_file(savedir,sid,suffix=".migdata")->str:
     """
     Create full path from directory and a source id,   The 
     source id is converted to a string and a suffix appended. 
@@ -534,7 +534,9 @@ def make_pickle_path(savedir,sid,suffix=".migdata")->str:
     earlier.  Returns this path name string
 
     """
-    result = savedir + "/" + str(sid) + suffix
+    result = savedir.copy()
+    result += "/" 
+    result += str(sid) + suffix
     return result
     
 def migrate_event(mspass_client, dbname, sid, pf, 
@@ -608,7 +610,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
         # strangely resolve dores not return a str but a Path object that 
         # cannot be used with str operators like _ .  Hence this forced 
         # type conversion
-        savepath = str(savepath)
+        savedir = str(savepath)
     if parallel:
         db = mspass_client.get_database(dbname)
         dask_client = mspass_client.get_scheduler()
@@ -772,11 +774,11 @@ def migrate_event(mspass_client, dbname, sid, pf,
     del Up3d
 
     if save_components:
-        savepath = make_pickle_path(savepath, sid)
+        savefile = make_pickle_file(savedir, sid)
     else:
         # note _migrate_component takes None to mean do not save 
         # migrated image volume to a file
-        savepath=None
+        savefile=None
     # The loop over plane wave components is driven by a list of gridids
     # retried this way.   We also need, however, to subset by source id.  
     # some complexity here to handle source or telecluster as collection 
@@ -807,7 +809,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 print("Submitting data for gridid=",gridid," for processing")
             f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                    f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
-                                   filename=savepath,
+                                   filename=savefile,
                                    )
             #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
             #                       svm0, Us3d, Vp1d, Vs1d, control)
@@ -845,7 +847,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 i_q += 1
                 
         if save_components:
-            dirfile = make_pickle_path(savepath, sid, suffix="offsets")
+            dirfile = make_pickle_file(savedir, sid, suffix="offsets")
             with open(dirfile,"wb") as fh:
                 pickle.dump(pickle_file_offset_list,fh)
             
