@@ -192,12 +192,9 @@ class worker_memory_estimator:
     
     def worker_memory_requirement(self)->dict:
         """
-        Return the dictionary that can be passed to dask.distributed.submit 
-        as the resource argument to tell the schedler how much memory 
-        the migrate_compnent function is expected to us. 
-        
-        Note the size returned is a lower bound.   Caller may want to 
-        add a fudge factor.  
+        Return the amount of memory each worker will need to run pwmig.
+        Note this is a lower bound as it considers only the biggest 
+        objects.  
         """
         workersize = self.ensemble_size 
         workersize += self.parentsize
@@ -205,7 +202,7 @@ class worker_memory_estimator:
         workersize += self.incidentgridsize
         workersize += self.ugridsize
         workersize += self.wrgsize
-        return { "MEMORY": workersize}
+        return workersize
     
     def report(self,print_report=True):
         """
@@ -228,8 +225,7 @@ class worker_memory_estimator:
         report += "raygrid created for each plane wave component size={}\n".format(self.wrgsize/1e6)
         report += "Image grid size={}\n".format(self.imggridsize/1e6)
         report += "////////////// estimaed memory use per worker  ////////////////////////\n"
-        memdict = self.worker_memory_requirement()
-        workersize  = memdict["MEMORY"]
+        workersize = self.worker_memory_requirement()
         report += "Minimum memory use={}\n".format(workersize/1e6)
         report += "////////////// estimated memory use of frontend process////////////////\n"
         
@@ -631,8 +627,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
     if dryrun:
         wmem.report()
         exit(1)
-    else:
-        memory_resource=wmem.worker_memory_requirement()
     # Freeze use of source collection for source_id consistent with MsPASS
     # default schema.
     doc = db[source_collection].find_one({'_id': sid})
@@ -814,7 +808,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
             f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                    f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
                                    filename=savepath,
-                                   resources = memory_resource,
                                    )
             #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
             #                       svm0, Us3d, Vp1d, Vs1d, control)
@@ -847,7 +840,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 new_f = dask_client.submit(_migrate_component, query, db.name, f_parent, f_TPfield,
                                        f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
                                        filename=savepath, 
-                                       resources=memory_resource)
+                                       )
                 seq.add(new_f)
                 i_q += 1
                 
