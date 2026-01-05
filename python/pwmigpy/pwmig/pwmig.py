@@ -467,8 +467,9 @@ def _migrate_component(query,
     pwdgrid = migrate_component(pwensemble, parent, TPfield, VPsvm, Us3d,
                                 Vp1d, Vs1d, control)
     del pwensemble
-    t2 = time.time()
-    ddist.print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
+    if verbose:
+        t2 = time.time()
+        ddist.print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
     if filename is not None:
         with open(filename,"ab") as fh:
             foff = fh.tell()
@@ -531,12 +532,14 @@ def make_pickle_file(savedir,sid,suffix=".migdata")->str:
     Create full path from directory and a source id,   The 
     source id is converted to a string and a suffix appended. 
     Assumes the directory is a full path created with resolve 
-    earlier.  Returns this path name string
+    earlier.  Returns this path name string.   Use the
+    suffix kwarg to add a different suffix.  Used in this code 
+    to create file to contain offsets.
 
     """
-    result = savedir.copy()
-    result += "/" 
-    result += str(sid) + suffix
+    # str(savedir) may not be necessary but allows savddir to bo 
+    # a Path object nd not abort
+    result = str(savedir) + str(sid) + suffix
     return result
     
 def migrate_event(mspass_client, dbname, sid, pf, 
@@ -827,7 +830,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
             # only a tuple otherwise
             f_result = f.result()
             if accumulate:
-                print("Summing raygrid data into final image field")
                 migrated_image += f_result
                 del pwdgrid
             else:
@@ -835,8 +837,11 @@ def migrate_event(mspass_client, dbname, sid, pf,
             # this seems necessar to force dask to release worker memory 
             # used by f
             dask_client.cancel(f)
-            del f   
-            print("Time to accumulate these data in master=",time.time()-t0sum)
+            del f 
+            if accumulate and verbose:
+                print("Time to accumulate these data in master=",time.time()-t0sum)
+            elif verbose:
+                print("Time to write data to scratch file=",time.time()-t0sum)
             if i_q<N_q:
                 if verbose:
                     print("Submitting data for gridid=",gridid_list[i_q]," for processing")
