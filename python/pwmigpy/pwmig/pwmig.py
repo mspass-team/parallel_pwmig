@@ -475,12 +475,9 @@ def _migrate_component(query,
             foff = fh.tell()
             pickle.dump(pwdgrid,fh)
             del pwdgrid
-            return [query,foff]
+        return [query,foff]
     else:
         return pwdgrid
-    # just return a nessage for debugging
-    #del pwdgrid
-    #return "finished ensemble with {} members".format(len(pwensemble.member))
 
 
 def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
@@ -527,7 +524,7 @@ def compute_3dfieldsize(f)->int:
     total_arraysize = 3*ngridpoints + fielddatasize
     return 8*total_arraysize
 
-def make_pickle_file(savedir,sid,suffix=".migdata")->str:
+def make_pickle_file(savedir,sid,extension="migdata")->str:
     """
     Create full path from directory and a source id,   The 
     source id is converted to a string and a suffix appended. 
@@ -537,10 +534,8 @@ def make_pickle_file(savedir,sid,suffix=".migdata")->str:
     to create file to contain offsets.
 
     """
-    # str(savedir) may not be necessary but allows savddir to bo 
-    # a Path object nd not abort
-    result = str(savedir) + str(sid) + suffix
-    return result
+    full_path = Path(savedir) / f"{str(sid)}{extension}"
+    return str(full_path)
     
 def migrate_event(mspass_client, dbname, sid, pf, 
                     source_collection="telecluster",
@@ -780,6 +775,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
 
     if save_components:
         savefile = make_pickle_file(savedir, sid)
+        print("Writing depth migrated components to scratch file=",savefile)
     else:
         # note _migrate_component takes None to mean do not save 
         # migrated image volume to a file
@@ -854,7 +850,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 i_q += 1
                 
         if save_components:
-            dirfile = make_pickle_file(savedir, sid, suffix="offsets")
+            dirfile = make_pickle_file(savedir, sid, extension="offsets")
             with open(dirfile,"wb") as fh:
                 pickle.dump(pickle_file_offset_list,fh)
             
@@ -882,5 +878,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
             print("Time to run migrate_component=",t2-t1)
             print("Time to sum grids=",t3-t2)
             i += 1
-        
-    return migrated_image
+        # this return needs to move after assimilating parallel summer
+        return migrated_image
+    # new  parallel partitioned stack will go here or in if block above
