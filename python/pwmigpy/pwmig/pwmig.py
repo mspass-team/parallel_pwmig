@@ -2,6 +2,9 @@ import time  # for testing only - remove when done
 import math
 from pathlib import Path
 import pickle
+import fcntl
+import os
+
 
 import dask.distributed as ddist
 from mspasspy.ccore.utility import (Metadata,
@@ -471,10 +474,8 @@ def _migrate_component(query,
         t2 = time.time()
         ddist.print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
     if filename is not None:
-        with open(filename,"ab") as fh:
-            foff = fh.tell()
-            pickle.dump(pwdgrid,fh)
-            del pwdgrid
+        foff = safe_append(filename, pwdgrid)
+        del pwdgrid
         return [query,foff]
     else:
         return pwdgrid
@@ -534,9 +535,45 @@ def make_pickle_file(savedir,sid,extension="migdata")->str:
     to create file to contain offsets.
 
     """
-    full_path = Path(savedir) / f"{str(sid)}{extension}"
+    full_path = Path(savedir) / f"{str(sid)}.{extension}"
     return str(full_path)
+
+def safe_append(file_path, data)->int:
+    """
+    This function is used to dump components to a common file with 
+    pickle.  The complexity is necessary because pickle is not thread 
+    safe and the scratch file created by migrate_event when save_component 
+    is set True is nearly guaranteed to be corrupted without it.   
     
+    The code here was mostly createc by Gemini.  I (glp) only added these 
+    comments and the code to return the file offset.
+    
+    :param file_path:   file into which the data are to be safely written.
+    :param path:   data to be saved.  Must be an object that can 
+      work with pickle. 
+    :return: file offset to first byte of data written with by this function.
+    """
+    # 1. Open the file in append binary mode
+    with open(file_path, "ab") as f:
+        try:
+            # 2. Acquire an Exclusive Lock (LOCK_EX)
+            # This will block (wait) until the other process is done.
+            fcntl.flock(f, fcntl.LOCK_EX)
+            # 3. Fetch the file offset needed in this application for the index
+            foff = f.tell()
+            # 4. Perform the write
+            pickle.dump(data, f)
+
+            # 5. Flush the internal buffer to disk before unlocking
+            f.flush()
+            os.fsync(f.fileno()) 
+            
+        finally:
+            # 6. Release the lock (LOCK_UN)
+            fcntl.flock(f, fcntl.LOCK_UN)
+            return foff
+
+
 def migrate_event(mspass_client, dbname, sid, pf, 
                     source_collection="telecluster",
                     parallel=True,
