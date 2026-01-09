@@ -553,25 +553,20 @@ def safe_append(file_path, data)->int:
       work with pickle. 
     :return: file offset to first byte of data written with by this function.
     """
-    # 1. Open the file in append binary mode
     with open(file_path, "ab") as f:
-        try:
-            # 2. Acquire an Exclusive Lock (LOCK_EX)
-            # This will block (wait) until the other process is done.
-            fcntl.flock(f, fcntl.LOCK_EX)
-            # 3. Fetch the file offset needed in this application for the index
-            foff = f.tell()
-            # 4. Perform the write
-            pickle.dump(data, f)
+        # Acquire an Exclusive Lock (LOCK_EX)
+        # This will block (wait) until the other process is done.
+        fcntl.flock(f, fcntl.LOCK_EX)
+        # Fetch the file offset needed in this application for the index
+        foff = f.tell()
+        pickle.dump(data, f)
 
-            # 5. Flush the internal buffer to disk before unlocking
-            f.flush()
-            os.fsync(f.fileno()) 
-            
-        finally:
-            # 6. Release the lock (LOCK_UN)
-            fcntl.flock(f, fcntl.LOCK_UN)
-            return foff
+        # Flush the internal buffer to disk before unlocking
+        f.flush()
+        os.fsync(f.fileno()) 
+        # Release the lock (LOCK_UN) before closing
+        fcntl.flock(f, fcntl.LOCK_UN)
+    return foff
 
 
 def migrate_event(mspass_client, dbname, sid, pf, 
