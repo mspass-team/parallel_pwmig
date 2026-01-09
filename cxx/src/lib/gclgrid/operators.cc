@@ -533,17 +533,9 @@ GCLvectorfield3d& GCLvectorfield3d::operator+=(const GCLvectorfield3d& g)
 		remap=false;
 	else
 		remap=true;
-  std::cout<<"Debug operator+ grid comparison"<<std::endl;
-  std::cout<<"remap="<<remap<<std::endl;
-  std::cout<<this->n1<<" "<<g.n1<<std::endl;
-  std::cout<<this->n2<<" "<<g.n2<<std::endl;
-  std::cout<<this->n3<<" "<<g.n3<<std::endl;
-  std::cout<<this->nv<<" "<<g.nv<<std::endl;
   if( !remap && (this->n1 == g.n1) && (this->n2 == g.n2) && (this->n3 == g.n3) 
         && (this->nv == g.nv) )
   {
-    // DEBUG for verifying behavior
-    std::cout<<"GCLvectorfield3d::operator+= running fast algorithm"<<std::endl;
     /* Fast copy possible if all sizes are equal. There is a tiny chance two 
      * grids with identical sizes and the same origin (remap true) shouldn't 
      * be merged but not a concern in this package. */
@@ -557,8 +549,6 @@ GCLvectorfield3d& GCLvectorfield3d::operator+=(const GCLvectorfield3d& g)
   }
   else
   {
-    // DEBUG for verifying behavior
-    std::cout<<"GCLvectorfield3d::operator+= running cautious algorithm"<<std::endl;
     stringstream ss;
   	std::vector<int> origin_index;  //needed below for parallel_lookup revision
   	/* these are altered within the loop below by parallel_lookup */
