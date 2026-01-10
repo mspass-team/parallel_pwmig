@@ -396,23 +396,6 @@ def _set_incident_slowness_metadata(d, svm):
     return d
 
 
-def _add_fieldata(f1, f2):
-    """
-    Applies += operator and returns f1+f2.  If geometries of f1 and f2
-    differ the returned field will have the geometry of f1
-    """
-    f1 += f2
-    return f1
-
-
-def migrate_one_seismogram_python(*args):
-    return migrate_one_seismogram(*args)
-
-
-def accumulate_python(grid, migseis):
-    grid.accumulate(migseis)
-    return grid
-
 
 def _migrate_component_parallel(query,
                         dbname, 
