@@ -840,7 +840,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 print("Submitting data for gridid=",gridid," for processing")
             f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
                                    f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
-                                   filename=root_scratch_filename,
+                                   file_rootpath=root_scratch_filename,
                                    )
             #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
             #                       svm0, Us3d, Vp1d, Vs1d, control)
@@ -874,7 +874,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 query = {sidkey: sid, "gridid": gridid_list[i_q]}
                 new_f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
                                        f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
-                                       filename=root_scratch_filename, 
+                                       file_rootpath=root_scratch_filename, 
                                        )
                 seq.add(new_f)
                 i_q += 1
