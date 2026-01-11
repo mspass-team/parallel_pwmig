@@ -742,7 +742,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
             num_workers = len(dask_client.scheduler_info()['workers'])
             N_submit_buffer = 2*num_workers
         else:
-            N_submit_buffer = pf.get_int("sliding_window_size")
+            N_submit_buffer = pf.get_long("sliding_window_size")
     else:
         dask_client = None
         if verbose:
