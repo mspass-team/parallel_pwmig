@@ -809,7 +809,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
         del imggrid
         migrated_image.zero()
         migrated_image.name="pwmigimage"
-    else:
+    elif save_components:
         pickle_file_offset_list=list()
 
     # This function extracts parameters passed around through a Metadata
