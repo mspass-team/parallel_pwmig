@@ -488,7 +488,7 @@ def _migrate_component_parallel(query,
 
 
 def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
-                 check_waveform_data=False):
+                 check_waveform_data=False)->bool:
     """
     Run this function to verify input to pwmig is complete as can be
     established before actually running the algorithm on a complete data set.
@@ -572,16 +572,113 @@ def safe_append(file_path, data)->int:
         fcntl.flock(f, fcntl.LOCK_UN)
     return foff
 
+def sum_scratch_file_content(filename,Ndata,migimage,verbose=False)->GCLvectorfield3d:
+    """
+    Sum contents of filename assumed to contained pickled raygrid 
+    images created by migrate_component.   This function is intended 
+    only for internal use.  It us run on workers with a dask.client.submit 
+    with one submit per file.   
+    
+    The raygrids are read in sequentially and summed into migimage.   
+    Note the pickled data are assumed raygrids while migimage is normally 
+    expected to be vector date stored in a regular GCLgrid3d.  
+    
+    :param filename:   file name containing pickled data to be read
+    :param Ndata:  number of objects expected in this file.  Note the 
+      function will raise an EOFError exception if Ndata is larger than 
+      the actual content.  It will silently miss data if Ndata is less than 
+      the actual content.   
+    :param migimage:   regular GCLvectorfield3d object used to accumulate the 
+      component sums.   
+    :param verbose:  when set True (default is False) some progress messages 
+      and timing data will be posted to output.  
+    """
+    if verbose:
+        ddist.print("Working on data for file=",filename)
+        ddist.print("Number of objects to accumulate=",Ndata)
+        t0=time.time()
+    with open(filename,"rb") as fh:
+        for i in range(Ndata):
+            raygrid = pickle.load(fh)
+            migimage += raygrid
+            del raygrid
+    if verbose:
+        ddist.print("Fininished processing file=",filename," Elapsed time=",time.time()-t0)
+    return migimage
+                
+def sum_components_by_file(dask_client,migimage,index,verbose=False)->GCLvectorfield3d:
+    """
+    Driver to sum all components stored in data files defined in the "index" 
+    input argument.  
+    
+    This function is more-or-less a manual map-reduce operator.  The map 
+    step takes filenames and sizes as inputs and emits a stack of the 
+    sums created from the content of each file.  The reduce step is 
+    actually done serial with dask.distributed.as_completed.   The sums 
+    from each worker created from each file are accumulated in the 
+    as_completed loop.  Benchmarks show that the accumulator runs 
+    several orders of magnitude faster than the file driven summers and will 
+    not bottleneck the processing until more workers than seem sensible 
+    would be used.   
+    
+    :param dask_client:  instance of the dask client.  Work is sent to 
+      workers with the submit method of this client.  
+    :param migimage:   master GCLvectorfield3D object to contain result. 
+      The vector values in the input should be zeros when ths functions is 
+      called to initiate accumulation of the result.
+    :param index:   index created by _migrate_components.  Stored in a pickle 
+      file but when this function is run from migrate_event the original 
+      copy in memory is used. 
+    :param verbose:  when set True (default is False) some additional diagnostic
+      information is printed.  Set True only for testing to get timing 
+      data.
+    
+    """
+    filesizes=dict()
+    for tup in index:
+        dfile=tup[1]
+        if dfile in filesizes:
+            filesizes[dfile] += 1
+        else:
+            filesizes[dfile] = 1
+    f_migimage = dask_client.scatter(migimage,broadcast=True)
+    flist = list()
+    for k in filesizes.keys():
+        f = dask_client.submit(sum_scratch_file_content,k,filesizes[k],f_migimage,verbose=verbose)
+        flist.append(f)
+    seq = ddist.as_completed(flist)
+    for f in seq:
+        fimage = f.result()
+        migimage += fimage
+        del fimage
+    return migimage
+
+def delete_scratch_files(index)->int:
+    """
+    Deletes the set of scratch files defined in index - the return of 
+    migrate_components_parallel.  Note that excludes the index file 
+    but the logic of migrate_event prevents it from being written if 
+    this function is to be called. 
+    """
+    # first collect the unique file name using a set container
+    fileset=set()
+    count = 0
+    for tup in index:
+        fileset.add(tup[1])
+    for fname in fileset:
+        if os.path.exists(fname):
+            os.remove(fname)
+        else:
+            print("Warning (migrate_event):   file {} defined in index was not found".format(fname))
+            print("This should not happen but is not fatal - this is likelky a bug that needs to be fixed")
+        count += 1
+    return count
+        
 
 def migrate_event(mspass_client, dbname, sid, pf, 
-                    source_collection="telecluster",
-                    parallel=True,
-                    sliding_window_size=None,
                     verbose=False,
                     dryrun=False,
-                    accumulate=True,
-                    save_components=False,
-                    save_component_directory=None):
+                    ):
     """
     Top level map function for pwmig.   pwmig is a "prestack" method
     meaning we migrate data from individual source regions (always best
@@ -590,7 +687,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
     volume from migration of one ensemble of data assumed linked to
     a single source region.
     
-    The linkto source region is through a database id.  The function 
+    The link to source region is through a database id.  The function 
     allows the source data to be defined in either the "telecluster"
     collection (default) or the "source" collection - the normal 
     MsPASS collection for source data.   Most data will use telecluster
@@ -607,14 +704,15 @@ def migrate_event(mspass_client, dbname, sid, pf,
       data to be migrated by this function.  This id is linked to the 
       argument "source_collection" as the actual key used is the 
       standard composite key for a normalizing collection id 
-      (i.e collection_id).  T
+      (i.e collection_id).  The collection name this id links is assumed 
+      defined in pf with the key "source_collection".   
     :param pf:  AntelopePf object containing the control parameters for
       the program (run the pwmig_pfverify function to assure the parameters
       in this file are complete before starting a complete processing run.)
-    :param source_collection:   Collection containing source data documents 
-      that define the event to be processed by this function.
-    :param parallel:   boolean that when true runs the algorithm in 
-      paallel using dask.   When false processing is serial.
+      This file contains most of the fairly long set of configuration 
+      parameters needed to run this function.   See comments in the master 
+      pf and the user manual (under construction) for guidance in setting 
+      these paramters
     :param verbose:  boolean that when true will generate more volumious 
       output.   Default is mostly silent. 
       
@@ -627,6 +725,31 @@ def migrate_event(mspass_client, dbname, sid, pf,
     must understand how all that works.  
 
     """
+    # This first set of parameters were passed as args in earlier 
+    # implementations of this function.   Changed Jan 26 to simplify 
+    # configuration process to run this application
+    source_collection = pf.get_string("source_collection")
+    accumulate = pf.get_bool("accumulate")
+    save_components = pf.get_bool("save_components")
+    parallel = pf.get_bool("parallel")
+    clear_scratch_data = pf.get_bool("clear_scratch_data")
+    save_component_directory = pf.get_string("save_component_directory")
+    # handle auto option for the sliding window size here 
+    sliding_window_size = pf.get_string("sliding_window_size")
+    if parallel:
+        dask_client = mspass_client.get_scheduler()
+        if sliding_window_size=="auto":
+            num_workers = len(dask_client.scheduler_info()['workers'])
+            N_submit_buffer = 2*num_workers
+            N_submit_buffer = sliding_window_size
+        else:
+            N_submit_buffer = int(sliding_window_size)
+    else:
+        dask_client = None
+        if verbose:
+            print("Warning:  running serial mode which may run for a long time")
+    db = mspass_client.get_database(dbname)
+    # some basic sanity checks    
     if not ( accumulate or save_components ):
         message = "migrate_event:  illegal kwarg combination\n"
         message += "either accumulate or save_cmponents must be True"
@@ -647,20 +770,10 @@ def migrate_event(mspass_client, dbname, sid, pf,
         # cannot be used with str operators like _ .  Hence this forced 
         # type conversion
         savedir = str(savepath)
-        root_scratch_filename = savedir + "/{}".format(sid)
-    if parallel:
-        db = mspass_client.get_database(dbname)
-        dask_client = mspass_client.get_scheduler()
-        if sliding_window_size is not None:
-            N_submit_buffer = sliding_window_size
-        else:
-            num_workers = len(dask_client.scheduler_info()['workers'])
-            N_submit_buffer = 2*num_workers
-    else:
-        db = mspass_client.get_database(dbname)
-        dask_client = None
         if verbose:
-            print("Wanring:  running serial mode which may run for a long time")
+            print("Scratch files will be written to directory=",savedir)
+        root_scratch_filename = savedir + "/{}".format(sid)
+
     # force verbose if dryrun is enabled
     wmem = worker_memory_estimator(db, sid, pf, source_collection)
     if dryrun:
@@ -879,10 +992,21 @@ def migrate_event(mspass_client, dbname, sid, pf,
                 seq.add(new_f)
                 i_q += 1
                 
-        if save_components:
+        if save_components and not clear_scratch_data:
             dirfile = make_index_filename(savedir, sid)
             with open(dirfile,"wb") as fh:
                 pickle.dump(pickle_file_offset_list,fh)
+        if accumulate:
+            migrated_image=sum_components_by_file(dask_client,
+                                            migrated_image,
+                                            pickle_file_offset_list,
+                                            verbose=verbose,
+                                            )
+        if clear_scratch_data:
+            Ndeleted = delete_scratch_files(pickle_file_offset_list)
+            if verbose:
+                print("Finished processing event ",sid)
+                print("Deleted ",Ndeleted," scratch files before returning")
             
     else:
         idkey = source_collection + "_id"
