@@ -735,7 +735,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
     clear_scratch_data = pf.get_bool("clear_scratch_data")
     save_component_directory = pf.get_string("save_component_directory")
     # handle auto option for the sliding window size here 
-    sliding_window_size = pf.get_string("sliding_window_size")
+    sliding_window_size = pf.get("sliding_window_size")
     if parallel:
         dask_client = mspass_client.get_scheduler()
         if sliding_window_size=="auto":
