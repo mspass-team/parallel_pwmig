@@ -512,24 +512,6 @@ def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
     # 1  verify all gclfeield and vmodel data
     # print a report for waveform inputs per event
 
-def compute_3dfieldsize(f)->int:
-    """`
-    Returns the size in bytes of a GCLfield3D object.  Works for 
-    vector or scalar fileds.   Assumes all array elements are 8 bytes
-    which is true of the C++ function that defines these objects.
-    Input is the field.  Output is an integer with a size estimate.
-    
-    Note the size returned neglects object scalar attributes that 
-    are always tiny compared to the field data. 
-    """
-    ngridpoints=f.n1*f.n2*f.n3
-    if hasattr(f,"nv"):
-        nv=f.nv
-    else:
-        nv=1
-    fielddatasize=nv*ngridpoints
-    total_arraysize = 3*ngridpoints + fielddatasize
-    return 8*total_arraysize
 
 def make_index_filename(savedir,sid,extension="index"):
     """
@@ -827,10 +809,6 @@ def migrate_event(mspass_client, dbname, sid, pf,
         del imggrid
         migrated_image.zero()
         migrated_image.name="pwmigimage"
-        if verbose:
-            print("Creeated image grid")
-            imagevolsize=compute_3dfieldsize(migrated_image)
-            print("Size (bytes) of image grid used for this run=",imagevolsize)
     else:
         pickle_file_offset_list=list()
 
