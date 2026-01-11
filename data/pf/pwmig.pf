@@ -48,7 +48,7 @@ sliding_window_size auto
 # even when running parallel.   When true and parallel accumulation is 
 # done by reading data from scratch files
 accumulate true
-save_component true
+save_components true
 # when true the scratch files created when save_components is true are 
 # deleted when migrate_event returns
 clear_scratch_data true
