@@ -37,3 +37,21 @@ depth_padding_multiplier 1.2
 apply_elevation_statics false
 delta_slowness_cutoff 1.0
 elevation_static_correction_velocity 8.4
+#
+# Moved from argument lists for migrate_component to here Jan 26
+#
+source_collection telecluster
+parallel true
+# can be a number or auto.  If auto twice number of workers
+sliding_window_size auto
+# note when save_components is false accumulation is serial in driver (slow)
+# even when running parallel.   When true and parallel accumulation is 
+# done by reading data from scratch files
+accumulate true
+save_component true
+# when true the scratch files created when save_components is true are 
+# deleted when migrate_event returns
+clear_scratch_data true
+# user should alway customize this one
+# directory where the scratch files are written when save_component is true
+save_component_directory /N/slate/pavlis/pwmigtest
