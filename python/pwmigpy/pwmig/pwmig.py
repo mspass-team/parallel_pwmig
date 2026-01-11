@@ -967,7 +967,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
             # this s a large grid object when accumulate is true but 
             # only a tuple otherwise
             f_result = f.result()
-            if accumulate:
+            if accumulate and not save_components:
                 migrated_image += f_result
                 del pwdgrid
             else:
@@ -995,7 +995,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
             dirfile = make_index_filename(savedir, sid)
             with open(dirfile,"wb") as fh:
                 pickle.dump(pickle_file_offset_list,fh)
-        if accumulate:
+        if accumulate and save_components:
             migrated_image=sum_components_by_file(dask_client,
                                             migrated_image,
                                             pickle_file_offset_list,
