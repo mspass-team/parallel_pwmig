@@ -720,11 +720,14 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     sliding_window_size = pf.get("sliding_window_size")
     if parallel:
         dask_client = mspass_client.get_scheduler()
+        num_workers = len(dask_client.scheduler_info()['workers'])
         if sliding_window_size=="auto":
-            num_workers = len(dask_client.scheduler_info()['workers'])
             N_submit_buffer = 2*num_workers
         else:
             N_submit_buffer = pf.get_long("sliding_window_size")
+        if verbose:
+            print("Size of sliding window used for processing=",N_submit_buffer)
+            print("Number of workers in this cluster=",num_workers)
     else:
         dask_client = None
         if verbose:
@@ -937,6 +940,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         # performance at the cost of some mile complexity
         # this avoids needing to serialize each of thes on each submit 
         # line below
+        t0_scatter=time.time()
         f_parent = dask_client.scatter(parent,broadcast=True)
         f_TPfield = dask_client.scatter(TPfield,broadcast=True)
         f_svm0 = dask_client.scatter(svm0,broadcast=True)
@@ -945,6 +949,9 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
         # this one isn't that large but probably better pushed this way
         f_control = dask_client.scatter(control,broadcast=True)
+        if verbose:
+            print("Time to send common data to all workers=",time.time()-t0_scatter)
+        t0_process=time.time()
         if save_components:
 
             futures_list = []
@@ -1012,6 +1019,9 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                 if verbose:
                     print("Finished processing event ",sid)
                     print("Deleted ",Ndeleted," scratch files before returning")
+            
+            if verbose:
+                print("Time to run parallel section for this event=",time.time() - t0_process)
             if not accumulate:
                 # nothing to return in this case as nothing was summed into 
                 # migrated_image, which is the normal return
