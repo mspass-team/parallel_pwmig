@@ -227,7 +227,7 @@ class worker_memory_estimator:
         report += "2d slowness array grid size={}\n".format(self.ugridsize/1e6)
         report += "raygrid created for each plane wave component size={}\n".format(self.wrgsize/1e6)
         report += "Image grid size={}\n".format(self.imggridsize/1e6)
-        report += "////////////// estimaed memory use per worker  ////////////////////////\n"
+        report += "////////////// estimated memory use per worker  ////////////////////////\n"
         workersize = self.worker_memory_requirement()
         report += "Minimum memory use={}\n".format(workersize/1e6)
         report += "////////////// estimated memory use of frontend process////////////////\n"
@@ -753,7 +753,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         savedir = str(savepath)
         root_scratch_filename = savedir + "/{}".format(sid)
     if verbose:
-        print("/////migrate_event setup////")
+        print("/////migrate_event setup//////////////////////////////////////")
         if parallel:
             if save_components:
                 if accumulate:
@@ -769,12 +769,14 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                     print("This mode assumes the data in the scratch files will be summed later")
                     print("Warning:   this mode may require large amounts of scratch storage")
                     print("Monitor usage in scratch directory=",savedir)
+                    print("Also be aware this function will return a None in this mode")
             else:
                 print("Running parallel in mode using only cluster memory")
                 print("Warning:   this approach works only for smaller image volumes and clusters with sufficient memory")
         else:
             print("Running in serial mode")
             print("This mode requires the least memory but will run for a long time")
+        print("//////////////////////////////////////////////////////////////")
     # force verbose if dryrun is enabled
     wmem = worker_memory_estimator(db, sid, pf, source_collection)
     if dryrun:
@@ -1008,6 +1010,10 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                 if verbose:
                     print("Finished processing event ",sid)
                     print("Deleted ",Ndeleted," scratch files before returning")
+            if not accumulate:
+                # nothing to return in this case as nothing was summed into 
+                # migrated_image, which is the normal return
+                return None
         else:
             futures_list = []
             for gridid in gridid_list:
@@ -1072,6 +1078,6 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
             print("Time to run migrate_component=",t2-t1)
             print("Time to sum grids=",t3-t2)
             i += 1
-        # this return needs to move after assimilating parallel summer
-        return migrated_image
-    # new  parallel partitioned stack will go here or in if block above
+    # this return needs to move after assimilating parallel summer
+    return migrated_image
+
