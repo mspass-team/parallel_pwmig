@@ -657,7 +657,7 @@ def delete_scratch_files(index)->int:
     return count
         
 
-def migrate_event(mspass_client, dbname, sid, pf, 
+def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                     verbose=False,
                     dryrun=False,
                     ):
@@ -751,10 +751,30 @@ def migrate_event(mspass_client, dbname, sid, pf,
         # cannot be used with str operators like _ .  Hence this forced 
         # type conversion
         savedir = str(savepath)
-        if verbose:
-            print("Scratch files will be written to directory=",savedir)
         root_scratch_filename = savedir + "/{}".format(sid)
-
+    if verbose:
+        print("/////migrate_event setup////")
+        if parallel:
+            if save_components:
+                if accumulate:
+                    print("Running in standard mode")
+                    print("Writing scratch files in directory=",savedir)
+                    if clear_scratch_data:
+                        print("Scratch files will be deleted when finished")
+                    else:
+                        print("Scratch files will be retrained with an index file for later summation (see user manual)")
+                        print("Stacked image from this event will be returned")
+                else:
+                    print("Writing scratch files but not computing a stacked image")
+                    print("This mode assumes the data in the scratch files will be summed later")
+                    print("Warning:   this mode may require large amounts of scratch storage")
+                    print("Monitor usage in scratch directory=",savedir)
+            else:
+                print("Running parallel in mode using only cluster memory")
+                print("Warning:   this approach works only for smaller image volumes and clusters with sufficient memory")
+        else:
+            print("Running in serial mode")
+            print("This mode requires the least memory but will run for a long time")
     # force verbose if dryrun is enabled
     wmem = worker_memory_estimator(db, sid, pf, source_collection)
     if dryrun:
@@ -808,7 +828,7 @@ def migrate_event(mspass_client, dbname, sid, pf,
         migrated_image = GCLvectorfield3d(imggrid, 5)
         del imggrid
         migrated_image.zero()
-        migrated_image.name="pwmigimage"
+        migrated_image.name=output_image_name
     # used only if save_components is true but tiny cost to just create it 
     # to avoid logic errors downstream
     pickle_file_offset_list=list()
@@ -921,71 +941,113 @@ def migrate_event(mspass_client, dbname, sid, pf,
         f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
         # this one isn't that large but probably better pushed this way
         f_control = dask_client.scatter(control,broadcast=True)
-        futures_list = []
-        sidkey = source_collection + "_id"
-        N_q = len(gridid_list)
-        i_q = 0
-        for gridid in gridid_list:
-            query = {sidkey: sid, "gridid": gridid}
-            if verbose:
-                print("Submitting data for gridid=",gridid," for processing")
-            f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
-                                   f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
-                                   file_rootpath=root_scratch_filename,
-                                   )
-            #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
-            #                       svm0, Us3d, Vp1d, Vs1d, control)
-            futures_list.append(f)
-            i_q += 1
-            if i_q >= N_submit_buffer:
-                break    
-        
-        seq=ddist.as_completed(futures_list)
-        for f in seq:
-            t0sum=time.time()
-            # this s a large grid object when accumulate is true but 
-            # only a tuple otherwise
-            f_result = f.result()
-            if accumulate and not save_components:
-                migrated_image += f_result
-                del pwdgrid
-            else:
-                pickle_file_offset_list.append(f_result)
-            # this seems necessar to force dask to release worker memory 
-            # used by f
-            dask_client.cancel(f)
-            del f 
-            if accumulate and verbose:
-                print("Time to accumulate these data in master=",time.time()-t0sum)
-            elif verbose:
-                print("Time to write data to scratch file=",time.time()-t0sum)
-            if i_q<N_q:
+        if save_components:
+
+            futures_list = []
+            sidkey = source_collection + "_id"
+            N_q = len(gridid_list)
+            i_q = 0
+            for gridid in gridid_list:
+                query = {sidkey: sid, "gridid": gridid}
                 if verbose:
-                    print("Submitting data for gridid=",gridid_list[i_q]," for processing")
-                query = {sidkey: sid, "gridid": gridid_list[i_q]}
-                new_f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
+                    print("Submitting data for gridid=",gridid," for processing")
+                f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
                                        f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
-                                       file_rootpath=root_scratch_filename, 
+                                       file_rootpath=root_scratch_filename,
                                        )
-                seq.add(new_f)
+                #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
+                #                       svm0, Us3d, Vp1d, Vs1d, control)
+                futures_list.append(f)
                 i_q += 1
+                if i_q >= N_submit_buffer:
+                    break    
+            seq=ddist.as_completed(futures_list)
+            for f in seq:
+                t0sum=time.time()
+                # this s a large grid object when accumulate is true but 
+                # only a tuple otherwise
+                f_result = f.result()
+                if save_components:
+                    pickle_file_offset_list.append(f_result)
+                elif accumulate:
+                    migrated_image += f_result
+                    del pwdgrid
                 
-        if save_components and not clear_scratch_data:
-            dirfile = make_index_filename(savedir, sid)
-            with open(dirfile,"wb") as fh:
-                pickle.dump(pickle_file_offset_list,fh)
-        if accumulate and save_components:
-            migrated_image=sum_components_by_file(dask_client,
-                                            migrated_image,
-                                            pickle_file_offset_list,
-                                            verbose=verbose,
-                                            )
-        if clear_scratch_data:
-            Ndeleted = delete_scratch_files(pickle_file_offset_list)
-            if verbose:
-                print("Finished processing event ",sid)
-                print("Deleted ",Ndeleted," scratch files before returning")
+                # this seems necessary to force dask to release worker memory 
+                # used by f
+                dask_client.cancel(f)
+                del f 
+                if verbose:
+                    if save_components:
+                        print("Time to write data to scratch file=",time.time()-t0sum)
+                    elif accumulate:
+                        print("Time to accumulate these data in master=",time.time()-t0sum)
+                if i_q<N_q:
+                    if verbose:
+                        print("Submitting data for gridid=",gridid_list[i_q]," for processing")
+                    query = {sidkey: sid, "gridid": gridid_list[i_q]}
+                    new_f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
+                                           f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
+                                           file_rootpath=root_scratch_filename, 
+                                           )
+                    seq.add(new_f)
+                    i_q += 1
+                    
+            if save_components and not clear_scratch_data:
+                dirfile = make_index_filename(savedir, sid)
+                with open(dirfile,"wb") as fh:
+                    pickle.dump(pickle_file_offset_list,fh)
+            if accumulate and save_components:
+                migrated_image=sum_components_by_file(dask_client,
+                                                migrated_image,
+                                                pickle_file_offset_list,
+                                                verbose=verbose,
+                                                )
+            if clear_scratch_data:
+                Ndeleted = delete_scratch_files(pickle_file_offset_list)
+                if verbose:
+                    print("Finished processing event ",sid)
+                    print("Deleted ",Ndeleted," scratch files before returning")
+        else:
+            futures_list = []
+            for gridid in gridid_list:
+                query = {sidkey: sid, "gridid": gridid}
+                f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
+                                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
+                                       file_rootpath=root_scratch_filename,
+                                       )
+                futures_list.append(f)
             
+            # Binary tree reduction for parallel accumulation with timely garbage collection
+            def add_images(a, b):
+                # Function to add two migrated image components.
+                # not certain this name test is necessary but results will 
+                # be corupted it it is not satisfied
+                if a.name == output_image_name:
+                    a += b
+                    return a
+                elif b.name == output_image_name:
+                    b += a
+                    return b
+                else:
+                    message = "add_images function received invalid input\n"
+                    message += "grid a name attribute={} and grid b name attribute={}\n".format(a.name,b.name)
+                    message += "Neither match required name={}".format(output_image_name)
+                    raise RuntimeError(message)
+            
+            while len(futures_list) > 1:
+                new_futures = []
+                for i in range(0, len(futures_list), 2):
+                    if i + 1 < len(futures_list):
+                        # Submit a task to add two futures concurrently.
+                        sum_future = dask_client.submit(add_images, futures_list[i], futures_list[i+1])
+                        new_futures.append(sum_future)
+                    else:
+                        # Carry forward the odd future.
+                        new_futures.append(futures_list[i])
+                futures_list = new_futures
+            
+            migrated_image = futures_list[0].result()      
     else:
         idkey = source_collection + "_id"
         query = {idkey: sid}
