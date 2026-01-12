@@ -922,6 +922,8 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                                            zmax * zpad, tmax, dt, 
                                              zdecfac, True)
     del Up3d
+    if verbose:
+        print("Time to create incident wave travel time grid=",time.time()-t0)
 
     # The loop over plane wave components is driven by a list of gridids
     # retried this way.   We also need, however, to subset by source id.  
