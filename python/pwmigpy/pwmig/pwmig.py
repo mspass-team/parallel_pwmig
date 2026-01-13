@@ -18,7 +18,6 @@ from pwmigpy.ccore.gclgrid import (GCLvectorfield3d)
 from pwmigpy.ccore.seispp import RayPathSphere
 from pwmigpy.ccore.pwmigcore import (SlownessVectorMatrix,
                                      ComputeIncidentWaveRaygrid,
-                                     migrate_one_seismogram,
                                      migrate_component)
 from pwmigpy.db.database import (vmod1d_dbread_by_name,
                                  GCLdbread_by_name)
@@ -334,7 +333,40 @@ def _build_control_metadata(control):
     return result;
 
 
-def BuildSlownessGrid(g, source_lat, source_lon, source_depth, model='iasp91', phase='P'):
+def BuildSlownessGrid(g, source_lat, source_lon, source_depth, 
+                      model='iasp91', phase=['P','PP',"PKP"],verbose=False):
+    """
+    Internal function used to construct a 2d grid of slowness vectors.  
+    The grid produces is parallel with "parent" loaded in migrate_event
+    which defines the uniform grid of pseudostations used to drive pwstack.  
+    This replace a C++ function with a similar purpose in the original 
+    pure C implementation of this algorithm. 
+    
+    Some complexity was added in testing when I realized it was not unusual 
+    with a very large array like the Earthscope TA for the grid 
+    define a range of distances crossing the core shadow.   Obspy's 
+    TauP calculator, which is used in this function, returns a None 
+    for P in that situation.  To make the function bombproof this function 
+    is made to act like the Antelope travel time calculator where "P" is 
+    defined as the first arrival no matter what the actual proper 
+    nomenclature is.  To do the default list defined by phase contains 
+    PP and PKP.   If P is not in the return list the function sets that cell 
+    with the value for PP or PKP depending on which one appears first 
+    (obspy seems to sort the list by time).  When verbose is set true 
+    a message is printed for each cell with a questionable value.
+    
+    This is an internal function so I will not dwell on argument details.  
+    g is the "parent" grid used as the pattern to build the slowness vector 
+    grid.  The meaning of the source_ parameters is obvious.   model is a
+    1d model name known to obspy's tau-p calculator (default iasp91).  
+    phase is the list of phases noted.  It should not normally be changed. 
+    It was made an argument to allow this code to be adapted at some point to 
+    SP conversion imaging.   Adapting in this case would involve only changing 
+    that phase list. 
+    
+    If the travel time function fails completely a RuntimeError exception 
+    with a diagnostic message will be thrown.
+    """
     model = TauPyModel(model=model)
     Rearth = 6378.164
     svm = SlownessVectorMatrix(g.n1, g.n2)
@@ -349,6 +381,15 @@ def BuildSlownessGrid(g, source_lat, source_lon, source_depth, model='iasp91', p
             dist = kilometers2degrees(georesult[0] / 1000.0)
             arrivals = model.get_travel_times(source_depth_in_km=source_depth,
                                               distance_in_degree=dist, phase_list=phase)
+            if arrivals[0]==0:
+                message = "BuildSlownessGrid (Fatal):   travel time calculator failed to return a valid model arrival object\n"
+                message += "Grid position {},{} is at epicentral distance={} from source at {},{}\n".format(i,j,dist,source_lat,source_lon)
+                message += "Function received phase={}".format(phase)
+                raise RuntimeError(message)
+            if verbose:
+                if arrivals[0].name != "P":
+                    print("BuildSlownessGrid(Warning): problem in grid cell {},{} at distance {}".format(i,j,dist))
+                    print("Setting slowness vector as that for phase {} instead of P".format(arrivals[0].name))
             ray_param = arrivals[0].ray_param
             umag = ray_param / Rearth  # need slowness in s/km but ray_param is s/radian
             baz = georesult[2]  # The obspy function seems to return back azimuth
@@ -585,7 +626,7 @@ def sum_scratch_file_content(filename,Ndata,migimage,verbose=False)->GCLvectorfi
             migimage += raygrid
             del raygrid
     if verbose:
-        ddist.print("Fininished processing file=",filename," Elapsed time=",time.time()-t0)
+        ddist.print("Finished processing file=",filename," Elapsed time=",time.time()-t0)
     return migimage
                 
 def sum_components_by_file(dask_client,migimage,index,verbose=False)->GCLvectorfield3d:
