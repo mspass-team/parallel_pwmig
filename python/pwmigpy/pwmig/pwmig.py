@@ -960,7 +960,11 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     if verbose:
         t0=time.time()
         print("Starting to compute incident P wave raygrid volume")
-    svm0 = BuildSlownessGrid(parent, source_lat, source_lon, source_depth)
+    svm0 = BuildSlownessGrid(parent, 
+                             source_lat, 
+                             source_lon, 
+                             source_depth,
+                             verbose=verbose)
     TPfield = ComputeIncidentWaveRaygrid(parent, border_pad,
                                          Up3d, Vp1d, svm0, 
                                            zmax * zpad, tmax, dt, 
