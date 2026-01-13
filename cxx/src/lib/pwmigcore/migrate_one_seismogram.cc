@@ -47,6 +47,10 @@ PWMIGmigrated_seismogram migrate_one_seismogram(Seismogram& pwdata,
     deadguy.live=false;
     return deadguy;
   }
+  /*
+  std::cout << "Debug migrate_one_seismogram:  "
+  << " pwdata.live="<<pwdata.live()<<std::endl;
+  */
   /* These two metadata gets are closely linked to a map function used
   in the python functoin that calls this one.   The names here must match
   that functions usage or we will surely abort.*/
@@ -73,7 +77,7 @@ PWMIGmigrated_seismogram migrate_one_seismogram(Seismogram& pwdata,
   int border_pad = control.get_int("border_padding");
 	double zpad = control.get_double("depth_padding_multiplier");
   double taper_length=control.get_double("taper_length_turning_rays");
-  bool rcomp_wt=control.get_bool("recompute_weight_functions");
+  //bool rcomp_wt=control.get_bool("recompute_weight_functions");
 	int nwtsmooth=control.get_int("weighting_function_smoother_length");
 	bool smooth_wt;
 	if(nwtsmooth<=0)
@@ -85,7 +89,6 @@ PWMIGmigrated_seismogram migrate_one_seismogram(Seismogram& pwdata,
   double dz=control.get_double("ray_trace_depth_increment");
   /* End get calls on control container */
 
-  bool weight_functions_set=false;
   int n3=raygrid.n3;
   double zmaxray;
   vector<double> Stime(n3), SPtime(n3);
@@ -116,6 +119,10 @@ PWMIGmigrated_seismogram migrate_one_seismogram(Seismogram& pwdata,
   /* We create the output now so we can post error messages to the
   elog of this object that is what we return*/
   PWMIGmigrated_seismogram result(i,j,n3);
+  /*
+  std::cout << "Debug migrate_one_seismogram:  "
+  << "result created with n3="<<n3<<std::endl;
+  */
   // We need a reference ray for the incident wavefield.
   // This ray is chopped up and transformed to GCLgrid coordinates
   // in the integration loop below.  We compute it here to
@@ -129,12 +136,20 @@ PWMIGmigrated_seismogram migrate_one_seismogram(Seismogram& pwdata,
   // current seismogram (i,j).  First we compute the S wave
   // travel time down this ray path (i.e. ordered from surface down)
   Stime = compute_Stime(Us3d,i,j,raygrid,use_3d_vmodel);
+  /*
+  std::cout << "Debug migrate_one_seismogram:  "
+  << "compute_Stime return vector of length="<<Stime.size()<<endl;
+  */
   // Now we compute the gradient in the S ray travel time
   // for each point on the ray.  Could have been done with
   // less memory use in the loop below, but the simplification
   // it provides seems useful to me.  Note this is a 3xn3 matrix
   // like gradTp that is filled inside the loop
   dmatrix gradTs=compute_gradS(raygrid,i,j,Vs1d);
+  /*
+  std::cout << "Debug migrate_one_seismogram:  "
+  << "Number of columns in matrix returned by compute_gradS="<<gradTs.columns()<<std::endl;
+  */
   dmatrix gradTp(3,n3);
   dmatrix nup(3,n3);
   vector<double> zP(n3);
@@ -242,6 +257,10 @@ PWMIGmigrated_seismogram migrate_one_seismogram(Seismogram& pwdata,
     tlag=Tpx+Stime[k]+tdelta-Tpr;
     SPtime.push_back(tlag);
   }
+  /*
+  std::cout << "Debug migrate_one_seismogram:  "
+  << "Size of SPtime vector computed="<<SPtime.size()<<std::endl;
+  */
 
   // skip this ray if there were travel time computation problems
   if(tcompute_problem)
@@ -310,42 +329,52 @@ PWMIGmigrated_seismogram migrate_one_seismogram(Seismogram& pwdata,
   result.migrated_data=trans_operator.apply(result.migrated_data);
   // done with these now
   delete pathptr;
-
-  // This computes domega for a ray path in constant dz mode
-  // We would have to interpolate anyway to mesh with
-  // time data choose the faster, coarser dz method here
-  //
-  if(rcomp_wt || !weight_functions_set)
+  /*
+  std::cout << "Debug migrate_one_seismogram:  "
+  << "Entered weight computation block with stack_only="<<stack_only<<endl;
+  */
+  /* This is a gross inefficiency in stack_only but since I only expect it to be
+  used for CCP stacking equivalent, this should not be a big deal.  Probably should
+  do it right some day */
+  if(stack_only)
   {
-    /* This is a gross inefficiency in stack_only but since I only expect it to be
-    used for CCP stacking equivalent, this should not be a big deal.  Probably should
-    do it right some day */
-    if(stack_only)
+    result.domega.clear();
+    for(k=0;k<n3;++k) result.domega.push_back(1.0);
+    for(k=0;k<n3;++k) result.dweight.push_back(1.0);
+  }
+  else
+  {
+    /* This is the normal block for computing solid angles */
+    result.domega=compute_domega_for_path(u0,dux,duy,
+      Vs1d, zmaxray,dz,
+      raygrid, i, j, gradTp,zP);
+    if(use_grt_weights)
     {
-      result.domega.clear();
-      for(k=0;k<n3;++k) result.domega.push_back(1.0);
-    }
-    else
-    {
-      /* This is the normal block for computing solid angles */
-      result.domega=compute_domega_for_path(u0,dux,duy,
-        Vs1d, zmaxray,dz,
-        raygrid, i, j, gradTp,zP);
-    }
-    if(use_grt_weights && (!stack_only) )
+/*
+std::cout << "Debug migrate_one_seismogram:  "
+<< "Calling compute_weight_for_path gradTP and gradTs sizes"
+<< gradTp.columns()<<" "<<gradTs.columns()<<std::endl;
+*/
       result.dweight=compute_weight_for_path(gradTp,gradTs);
+    }
     else
+    {
       for(k=0;k<n3;++k)result.dweight[k]=1.0;
-    if(smooth_wt && (!stack_only))
+    }
+    if(smooth_wt)
     {
       result.domega=running_average(result.domega,nwtsmooth);
       // Unnecessary when not using grt weighting
       if(use_grt_weights)
         result.dweight=running_average(result.dweight,nwtsmooth);
     }
-    weight_functions_set=true;
   }
   result.live=true;
+/*
+std::cout << "Debug migrate_one_seismogram:  "
+<< "Returned domega and weight vector sizes="<<result.domega.size()
+<< " " << result.dweight.size() << std::endl;
+*/
   return result;
 }
 

@@ -10,6 +10,7 @@
 #include "pwmig/seispp/EventCatalog.h"
 #include "pwmig/seispp/Stack.h"
 #include "pwmig/seispp/VelocityModel_1d.h"
+#include "pwmig/seispp/ray1d.h"
 #include "mspass/utility/Metadata.h"
 #include "mspass/utility/AntelopePf.h"
 
@@ -33,6 +34,7 @@ using mspass::algorithms::TimeWindow;
 using pwmig::seispp::Hypocenter;
 using pwmig::seispp::RadialGrid;
 using pwmig::seispp::EventCatalog;
+using pwmig::seispp::RayPathSphere;;
 using pwmig::seispp::SectorTest;
 using pwmig::seispp::Stack;
 using pwmig::seispp::VelocityModel_1d;
@@ -115,6 +117,24 @@ py::class_<EventCatalog>(m,"EventCatalog","In memory earthquake source data mana
   */
   .def("advance",&EventCatalog::advance,"Advance the current event pointer by number of slots requested")
   .def("sector_subset",&EventCatalog::subset<SectorTest>,"Subset using a radial grid")
+;
+py::class_<RayPathSphere>(m,"RayPathSphere","Encapsulates concept of a ray path in a spherical earth")
+    .def(py::init<const int>())
+    .def(py::init<const pwmig::seispp::VelocityModel_1d&,
+       const double, 
+         const double, 
+           const double, 
+             const double, 
+               const std::string>())
+    .def(py::init<const RayPathSphere&>())
+    .def("depth",&RayPathSphere::depth,"Return depth from an integer index for this ray")
+    .def_readonly("npts",&RayPathSphere::npts,"Get the number of points defining this ray path")
+    .def_readonly("p",&RayPathSphere::p,"Slowness (ray parameter) that defines this ray")
+    .def_readonly("r",&RayPathSphere::r,"Vector of radial distances defining the path")
+    .def_readonly("delta",&RayPathSphere::delta,"Vector of epicentral distances defining the path")
+    /* This one is readwrite to allow python code to use these for approximate ray tracing 
+       and computing integrated perturbations along a ray path */
+    .def_readwrite("t",&RayPathSphere::t,"Vector of travel times from surface to each point along this ray")
 ;
 py::class_<Stack>(m,"RobustStack","Ensemble stacker with simple and multiple robust stacking methods")
   .def(py::init<>())

@@ -1,27 +1,250 @@
 import time  # for testing only - remove when done
-
 import math
-import dask
-from mspasspy.ccore.utility import (AntelopePf,
-                                    Metadata,
+from pathlib import Path
+import pickle
+import fcntl
+import os
+
+
+import dask.distributed as ddist
+from mspasspy.ccore.utility import (Metadata,
                                     MsPASSError,
                                     ErrorSeverity)
 from mspasspy.ccore.seismic import (SlownessVector)
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth, kilometers2degrees
 
-from pwmigpy.ccore.gclgrid import (GCLvectorfield3d,
-                                   PWMIGfielddata)
-
+from pwmigpy.ccore.gclgrid import (GCLvectorfield3d)
+from pwmigpy.ccore.seispp import RayPathSphere
 from pwmigpy.ccore.pwmigcore import (SlownessVectorMatrix,
-                                     Build_GCLraygrid,
                                      ComputeIncidentWaveRaygrid,
-                                     migrate_one_seismogram,
                                      migrate_component)
-from pwmigpy.db.database import (GCLdbread,
-                                 vmod1d_dbread_by_name,
+from pwmigpy.db.database import (vmod1d_dbread_by_name,
                                  GCLdbread_by_name)
+from pwmigpy.utility.earthmodels import Velocity3DToSlowness 
 
+
+class worker_memory_estimator:
+    """
+    Utility class used to estimate memory footprint for a run of pwmig 
+    from database content and parameters defined in pf that will 
+    be used in running pwmig.   Constructor is initialization here. 
+    Standard use is to instantiate and instance of this class.  
+    If successful then run the report method to print results in a 
+    clean report forma. 
+    
+    :param db:  database handle for db to be used to drive pwmig
+    :param sid:  source is to use as pattern for checking data ensemble 
+      sizes.  subsets by source_collection_id matching this value.  
+    :param pf:   AntelopePf object created from pf file defining 
+      this run of pwmig.   Normally created from "pwmig.pf".   
+
+    """
+    def __init__(self,db,sid,pf,source_collection="telecluster"):
+        self.ensemble_size = self.input_data_size(db,sid,source_collection)
+        # this 2d grid has size data that impacts most of the memory 
+        # use.  We read it here as does pwmig
+        parent_grid_name = pf.get_string("Parent_GCLgrid_Name");
+        parent = GCLdbread_by_name(db, parent_grid_name, object_type="pwmig::gclgrid::GCLgrid")
+        # inlined as it is pretty trivial
+        self.parentsize = 8*3*parent.n1*parent.n2
+        self.wrgsize = self.worker_raygrid_size(db,pf,parent)
+        self.vmod3dsize = self.vel3dfield_size(db,pf)
+        self.imggridsize = self.imagegrid_size(db,pf)
+        self.incidentgridsize = self.incident_ptimegrid_size(db,parent,pf)
+        self.ugridsize = self.slowness_grid_size(parent)
+    @staticmethod
+    def input_data_size(db,sid,source_collection):
+        """
+        Set an estimate of the memory required to store an ensembled 
+        for sid.   Internal to this class but could be used in isolation.,
+        """
+        idname = source_collection + "_id"
+        query = {idname : sid,"gridid" : 0}
+        doc = db.wf_Seismogram.find_one(query)
+        # pwstack produces seismograms of the same size for all outputs 
+        # so we only need the first one to make an estimate
+        # firther the ensemble size is fixed for all components so 
+        # we can compute it thsi way
+        #query["gridid"] = doc["gridid"]
+        n_members = db.wf_Seismogram.count_documents(query)
+        # reading one member and using sizeof will give a more accurate 
+        # memory estimate than just using the sample size
+        d = db.read_data(doc,collection="wf_Seismogram")
+        dsize=d.__sizeof__()
+        input_data_size_bytes = n_members*dsize
+        return input_data_size_bytes
+    @staticmethod
+    def worker_raygrid_size(db,pf,parent):
+        """
+        Computes an estimate of the size of the raygrid computed 
+        internally in each worker.
+        
+        Internal to this class but could be used in isolation.,
+        """
+        # this computation is modeled on C++ function Build_GCLraygrid
+        n1 = parent.n1
+        n2 = parent.n2
+        # this is a nominal slowness  needed to build a nominal raypath 
+        # of typcal size.  This is an approximation but reasonable for 
+        # the purpose here
+        u_nominal = 1.0/8.0
+        zmax = pf.get_double("maximum_depth")
+        tmax = pf.get_double("maximum_time_lag")
+        # dux=pf.get_double("slowness_grid_deltau")
+        dt = pf.get_double("data_sample_interval")
+        Smodel1d_name = pf.get_string("S_velocity_model1d_name");
+        Vs1d = vmod1d_dbread_by_name(db, Smodel1d_name)
+        ray = RayPathSphere(Vs1d,u_nominal,zmax,tmax,dt,"t")
+        n3=ray.npts
+        # these grids use a 5 component vector.  DAta + domega and grt weight
+        nv=5
+        npts_grid = n1*n2*n3*nv
+        coords_size = 3*n1*n2*n3
+        # return size in bytes
+        return 8*(npts_grid+coords_size)
+    @staticmethod
+    def vel3dfield_size(db,pf,collection="GCLfielddata"):
+        """
+        Computes an estimate of the size of the grid used to store the 
+        3d model for P and S wave travel times.  
+        
+        Internal to this class but could be used in isolation.,
+        
+        Note this one needs to return 0 if the model name is not defined
+        """
+        Pvel3dname = pf.get_string('P_velocity_model3d_name') 
+        query={ "name" : Pvel3dname,
+               "object_type" : "pwmig::gclgrid::GCLscalarfield3d"}
+        doc = db[collection].find_one(query)
+        if doc:
+            n1 = doc["n1"]
+            n2 = doc["n2"]
+            n3 = doc["n3"]
+            data_size = n1*n2*n3
+            coords_size = 3*n1*n2*n3
+            return 8*(data_size+coords_size)
+        else:
+            message = "worker_memory_estimator.vel3dfield_size:  "
+            message += "no documents found with name="+Pvel3dname
+            print(message)
+            print("Check pf file if you intend to use a 3d earth model")
+            return 0
+    
+    @staticmethod
+    def incident_ptimegrid_size(db,parent,pf):
+        borderpad = pf.get_long("border_padding")
+        n1=parent.n1 + 2*borderpad
+        n2=parent.n2 + 2*borderpad
+        # n3 size has to handle padding and decimation
+        zmax = pf.get_double("maximum_depth")
+        tmax = pf.get_double("maximum_time_lag")
+        dt = pf.get_double("data_sample_interval")
+        zdecfac = pf.get_long("Incident_TTgrid_zdecfac")
+        zpad = pf.get_double("depth_padding_multiplier")
+        Pmodel1d_name = pf.get_string("P_velocity_model1d_name");
+        Vp1d = vmod1d_dbread_by_name(db, Pmodel1d_name)
+        u_nominal = 1.0/12.0
+        ray = RayPathSphere(Vp1d,u_nominal,zmax*zpad,tmax,dt,"t")
+        n3 = round(float(ray.npts)/zdecfac)
+        coords_size = 8*3*n1*n2*n3
+        data_size = 8*n1*n2*n3
+        return coords_size + data_size
+
+    @staticmethod
+    def imagegrid_size(db,pf,collection="GCLfielddata"):
+        """
+        Compute and store an estimate of the size of the image grid 
+        used to store the final image in frontend script.  
+        
+        Internal to this class but could be used in isolation.,
+        """
+        imgname = pf.get_string("stack_grid_name")
+        query = {"name" : imgname,
+                 "object_type" : "pwmig::gclgrid::GCLgrid3d"}
+        doc = db[collection].find_one(query)
+        if doc:
+            n1 = doc["n1"]
+            n2 = doc["n2"]
+            n3 = doc["n3"]
+            # image has 5 components at each node
+            data_size = n1*n2*n3*5
+            coords_size = 3*n1*n2*n3
+            return 8*(data_size+coords_size)
+        else:
+            message = "worker_memory_estimator.imagegrid_size:  "
+            message += "no documents found with name="+imgname
+            raise RuntimeError(message)
+            
+            
+    @staticmethod
+    def slowness_grid_size(parent):
+        """
+        Compute and store an estimate of the size of the 2d slowness grid 
+        used in pwmig.  This object is usually sall compared to any f the 
+        3d fields but is posted by the report method.
+        """
+        n1=parent.n1
+        n2=parent.n2
+        # each slowness vector has 2 components
+        data_size = 2*n1*n2
+        # slowness grid doesn is made conguent with parent so has no
+        # coordinate arrays
+        return 8*data_size
+    
+    def worker_memory_requirement(self)->dict:
+        """
+        Return the amount of memory each worker will need to run pwmig.
+        Note this is a lower bound as it considers only the biggest 
+        objects.  
+        """
+        workersize = self.ensemble_size 
+        workersize += self.parentsize
+        workersize += self.vmod3dsize 
+        workersize += self.incidentgridsize
+        workersize += self.ugridsize
+        workersize += self.wrgsize
+        return workersize
+    
+    def report(self,print_report=True):
+        """
+        Generate a nicely formatted report from the memory 
+        size data computed on construction.   This is the primary 
+        purpose of this class.  The method internally generates a 
+        string holding the report.   When the print_report is 
+        True (default) that string is pushed to the python 
+        print function and returns a None.  When False the 
+        report string is returned.  The False options provides more 
+        flexibility in how the output is handled.   
+        """
+        report = "////////////// pwmig run time data memory use estimates////////////////\n"
+        report += "////////////// Major pwmig data object sizes (Mbytes) ///////////////////\n"
+        report += "Approximate average ensemble size={}\n".format(self.ensemble_size/1e6)
+        report += "pseudostation 2d grid size (parent symbol in code)={}\n".format(self.parentsize/1e6)
+        report += "3d velocity model field={}\n".format(self.vmod3dsize/1e6)
+        report += "Incident wave travel time field size={}\n".format(self.incidentgridsize/1e6)
+        report += "2d slowness array grid size={}\n".format(self.ugridsize/1e6)
+        report += "raygrid created for each plane wave component size={}\n".format(self.wrgsize/1e6)
+        report += "Image grid size={}\n".format(self.imggridsize/1e6)
+        report += "////////////// estimated memory use per worker  ////////////////////////\n"
+        workersize = self.worker_memory_requirement()
+        report += "Minimum memory use={}\n".format(workersize/1e6)
+        report += "////////////// estimated memory use of frontend process////////////////\n"
+        
+        fesize = self.parentsize
+        fesize += self.vmod3dsize 
+        fesize += self.incidentgridsize
+        fesize += self.ugridsize
+        fesize += self.imggridsize
+        report += "Base size without worker data in transit={}\n".format(fesize/1e6)
+        report += "Size of raygrid data returned by each worker={}\n".format(self.wrgsize/1e6)
+        report += "Note:  actual use may buffer multiple copies of raygrid data being returned by workers\n"
+        report += "///////////////////////////////////////////////////////////////////////\n"
+        if print_report:
+            print(report)
+            return None
+        else:
+            return report
 
 # from pwmigpy.ccore.seispp import VelocityModel_1d
 
@@ -92,11 +315,6 @@ def _build_control_metadata(control):
     else:
         dz = 1.0
         _print_default_used_message("ray_trace_depth_increment", dz)
-    if control.is_defined("number_of_threads_per_worker"):
-        nthreads = control.get_long("number_of_threads_per_worker")
-    else:
-        nthreads = 4
-        _print_default_used_message("number_of_threads_per_worker", nthreads)
 
     result.put("use_3d_velocity_model", use_3d_vmodel)
     result.put("use_grt_weights", use_grt_weights)
@@ -112,11 +330,43 @@ def _build_control_metadata(control):
     result.put("maximum_depth", control["maximum_depth"])
     result.put("maximum_time_lag", control["maximum_time_lag"])
     result.put("data_sample_interval", control["data_sample_interval"])
-    result.put("number_of_threads_per_worker", nthreads)
     return result;
 
 
-def BuildSlownessGrid(g, source_lat, source_lon, source_depth, model='iasp91', phase='P'):
+def BuildSlownessGrid(g, source_lat, source_lon, source_depth, 
+                      model='iasp91', phase=['P','PP',"PKP"],verbose=False):
+    """
+    Internal function used to construct a 2d grid of slowness vectors.  
+    The grid produces is parallel with "parent" loaded in migrate_event
+    which defines the uniform grid of pseudostations used to drive pwstack.  
+    This replace a C++ function with a similar purpose in the original 
+    pure C implementation of this algorithm. 
+    
+    Some complexity was added in testing when I realized it was not unusual 
+    with a very large array like the Earthscope TA for the grid 
+    define a range of distances crossing the core shadow.   Obspy's 
+    TauP calculator, which is used in this function, returns a None 
+    for P in that situation.  To make the function bombproof this function 
+    is made to act like the Antelope travel time calculator where "P" is 
+    defined as the first arrival no matter what the actual proper 
+    nomenclature is.  To do the default list defined by phase contains 
+    PP and PKP.   If P is not in the return list the function sets that cell 
+    with the value for PP or PKP depending on which one appears first 
+    (obspy seems to sort the list by time).  When verbose is set true 
+    a message is printed for each cell with a questionable value.
+    
+    This is an internal function so I will not dwell on argument details.  
+    g is the "parent" grid used as the pattern to build the slowness vector 
+    grid.  The meaning of the source_ parameters is obvious.   model is a
+    1d model name known to obspy's tau-p calculator (default iasp91).  
+    phase is the list of phases noted.  It should not normally be changed. 
+    It was made an argument to allow this code to be adapted at some point to 
+    SP conversion imaging.   Adapting in this case would involve only changing 
+    that phase list. 
+    
+    If the travel time function fails completely a RuntimeError exception 
+    with a diagnostic message will be thrown.
+    """
     model = TauPyModel(model=model)
     Rearth = 6378.164
     svm = SlownessVectorMatrix(g.n1, g.n2)
@@ -131,6 +381,15 @@ def BuildSlownessGrid(g, source_lat, source_lon, source_depth, model='iasp91', p
             dist = kilometers2degrees(georesult[0] / 1000.0)
             arrivals = model.get_travel_times(source_depth_in_km=source_depth,
                                               distance_in_degree=dist, phase_list=phase)
+            if arrivals[0]==0:
+                message = "BuildSlownessGrid (Fatal):   travel time calculator failed to return a valid model arrival object\n"
+                message += "Grid position {},{} is at epicentral distance={} from source at {},{}\n".format(i,j,dist,source_lat,source_lon)
+                message += "Function received phase={}".format(phase)
+                raise RuntimeError(message)
+            if verbose:
+                if arrivals[0].name != "P":
+                    print("BuildSlownessGrid(Warning): problem in grid cell {},{} at distance {}".format(i,j,dist))
+                    print("Setting slowness vector as that for phase {} instead of P".format(arrivals[0].name))
             ray_param = arrivals[0].ray_param
             umag = ray_param / Rearth  # need slowness in s/km but ray_param is s/radian
             baz = georesult[2]  # The obspy function seems to return back azimuth
@@ -160,7 +419,6 @@ def query_by_id(gridid, db, source_id, collection='wf_Seismogram'):
     return collection.find(query)
 
 
-@dask.delayed
 def _set_incident_slowness_metadata(d, svm):
     """
     Internal function used in map to set metadata fields in
@@ -179,43 +437,99 @@ def _set_incident_slowness_metadata(d, svm):
     return d
 
 
-def _add_fieldata(f1, f2):
+
+def _migrate_component_parallel(query,
+                        dbname, 
+                         parent, 
+                          TPfield, 
+                           VPsvm, 
+                            Us3d, 
+                             Vp1d, 
+                              Vs1d, 
+                               control,
+                                verbose=False,
+                                 file_rootpath=None):
     """
-    Applies += operator and returns f1+f2.  If geometries of f1 and f2
-    differ the returned field will have the geometry of f1
+    This small function is mostly a wrapper for the C++ function
+    with the same name sans the _ (i.e. migrate_component).  Most of the 
+    computational work happens in the C++ function while this wrapper 
+    handles the interaction with dask and the io system.  It is the 
+    function used in parallel processing sent to workers with 
+    dask.distributed.submit.   
+    
+    Behavior is higly dependent on the kwarg parameter `file_rootpath`.
+    When None the function returns the computed 3d ray grid object 
+    returned by migrate_component.  When False, that data is written to 
+    a scratch file with pickle with a unique name for each worker.  
+    That worker tag proved necessary because on a Lustre file system 
+    concurrent processes cannot guarantee a valid file position from 
+    a call to tell.  The handling of the file handling is not robust as 
+    the expectation is this function should only be used internally 
+    called from migrate_event and that bookkeepting is handled there.  
+    
+    :param query:  query defining data to be migrated (normally generated by 
+      migrate_event).
+    :param dbname:  name of database to read data from using query
+    :param parent:   GCLgrid defining the surface of the pwmig image volume. 
+      Note this is expected to be the 2d grid at the surface.
+    :param TPfield:   P wave travel time ANOMALY field - normally generated 
+      earlier inside migrate_event.
+    :param VPsvm:   slowness vector grid used to generate raygrid inside 
+      the C++ function
+    :param Us3D:   3d slowness model for S 
+    :param Vp1d:  1d P wave reference model
+    :param Vs1d:  1d S wave referenc model
+    :param control:   control structure created by migrate_event.
+    :param verbose:  boolean with usual function.  Works silently when 
+      False but posts some messages with dask.distibuted.print 
+      when True.  
+    :param filename:   When defined (default is None which is taken 
+      to mean ignore this) each raygrid image is dumped to a file 
+      by this name with pickle.  When that is so the pwdgrid is 
+      deleted and the function returns a tuple of [query,foff] where 
+      foff is the starting byte offset where pickle wrote.   That allos 
+      parallel reduction with a directory file created by migrate_event 
+      when run in this mode.
+      
+    :return:  a PWMIGfielddata object that is the migrated raygrid when 
+      filename is not defined.  When filename is defined returns only 
+      a tuple of the form [query,foff]
+
     """
-    f1 += f2
-    return f1
-
-
-def migrate_one_seismogram_python(*args):
-    return migrate_one_seismogram(*args)
-
-
-@dask.delayed
-def accumulate_python(grid, migseis):
-    grid.accumulate(migseis)
-    return grid
-
-
-def _migrate_component(cursor, db, parent, TPfield, VPsvm, Us3d, Vp1d, Vs1d, control):
-    """
-    This small function is largely a wrapper for the C++ function
-    with the same name sans the _ (i.e. migrate_component).
-
-    """
+    worker = ddist.get_worker()
+    dbclient = worker.data["dbclient"]
+    db = dbclient.get_database(dbname)
     t0 = time.time()
+    cursor = db.wf_Seismogram.find(query)
     pwensemble = db.read_data(cursor, collection="wf_Seismogram")
+    cursor.close()
     t1 = time.time()
     pwdgrid = migrate_component(pwensemble, parent, TPfield, VPsvm, Us3d,
                                 Vp1d, Vs1d, control)
-    t2 = time.time()
-    print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
-    return pwdgrid
+    del pwensemble
+    if verbose:
+        t2 = time.time()
+        ddist.print("Time to run read_ensemble=", t1 - t0, " Time to run migrate_component=", t2 - t1)
+    if file_rootpath is not None:
+        # we need a different file name for each worker 
+        # the dask worker id is extracted this way and used to construct the 
+        # scratch filename from the base path.  We asssume the directory 
+        # in this path was defined in migrate_event so we don't waste effort 
+        # checking for a valid path.
+        worker = ddist.get_worker()
+        output_filename = "{}_{}.migdata".format(file_rootpath,worker.id)
+        # file locking used in this function may not be necessary as I 
+        # don't think an individual worker will ever be writing to the 
+        # same file simultaneously.   Better safe for a tiny cost
+        foff = safe_append(output_filename, pwdgrid)
+        del pwdgrid
+        return [query,output_filename,foff]
+    else:
+        return pwdgrid
 
 
 def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
-                 check_waveform_data=False):
+                 check_waveform_data=False)->bool:
     """
     Run this function to verify input to pwmig is complete as can be
     established before actually running the algorithm on a complete data set.
@@ -240,7 +554,154 @@ def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
     # print a report for waveform inputs per event
 
 
-def migrate_event(db, source_id, pf, collection='GCLfielddata'):
+def make_index_filename(savedir,sid,extension="index"):
+    """
+    Similar to make_pickle_filename but used to construct the file name 
+    for the index to the data files related to make_pickle_filename.   
+    The index file does not contain a worker id in the name because it 
+    is always created in the master script where get_worker would 
+    actually throw an error.
+    """
+    full_path = Path(savedir) / f"{str(sid)}.{extension}"
+    return str(full_path)
+
+def safe_append(file_path, data)->int:
+    """
+    This function is used to dump components to a common file with 
+    pickle.  The complexity is necessary because pickle is not thread 
+    safe and the scratch file created by migrate_event when save_component 
+    is set True is nearly guaranteed to be corrupted without it.   
+    
+    The code here was mostly createc by Gemini.  I (glp) only added these 
+    comments and the code to return the file offset.
+    
+    :param file_path:   file into which the data are to be safely written.
+    :param path:   data to be saved.  Must be an object that can 
+      work with pickle. 
+    :return: file offset to first byte of data written with by this function.
+    """
+    with open(file_path, "ab") as f:
+        # Acquire an Exclusive Lock (LOCK_EX)
+        # This will block (wait) until the other process is done.
+        fcntl.flock(f, fcntl.LOCK_EX)
+        # Fetch the file offset needed in this application for the index
+        foff = f.tell()
+        pickle.dump(data, f)
+
+        # Flush the internal buffer to disk before unlocking
+        f.flush()
+        os.fsync(f.fileno()) 
+        # Release the lock (LOCK_UN) before closing
+        fcntl.flock(f, fcntl.LOCK_UN)
+    return foff
+
+def sum_scratch_file_content(filename,Ndata,migimage,verbose=False)->GCLvectorfield3d:
+    """
+    Sum contents of filename assumed to contained pickled raygrid 
+    images created by migrate_component.   This function is intended 
+    only for internal use.  It us run on workers with a dask.client.submit 
+    with one submit per file.   
+    
+    The raygrids are read in sequentially and summed into migimage.   
+    Note the pickled data are assumed raygrids while migimage is normally 
+    expected to be vector date stored in a regular GCLgrid3d.  
+    
+    :param filename:   file name containing pickled data to be read
+    :param Ndata:  number of objects expected in this file.  Note the 
+      function will raise an EOFError exception if Ndata is larger than 
+      the actual content.  It will silently miss data if Ndata is less than 
+      the actual content.   
+    :param migimage:   regular GCLvectorfield3d object used to accumulate the 
+      component sums.   
+    :param verbose:  when set True (default is False) some progress messages 
+      and timing data will be posted to output.  
+    """
+    if verbose:
+        ddist.print("Working on data for file=",filename)
+        ddist.print("Number of objects to accumulate=",Ndata)
+        t0=time.time()
+    with open(filename,"rb") as fh:
+        for i in range(Ndata):
+            raygrid = pickle.load(fh)
+            migimage += raygrid
+            del raygrid
+    if verbose:
+        ddist.print("Finished processing file=",filename," Elapsed time=",time.time()-t0)
+    return migimage
+                
+def sum_components_by_file(dask_client,migimage,index,verbose=False)->GCLvectorfield3d:
+    """
+    Driver to sum all components stored in data files defined in the "index" 
+    input argument.  
+    
+    This function is more-or-less a manual map-reduce operator.  The map 
+    step takes filenames and sizes as inputs and emits a stack of the 
+    sums created from the content of each file.  The reduce step is 
+    actually done serial with dask.distributed.as_completed.   The sums 
+    from each worker created from each file are accumulated in the 
+    as_completed loop.  Benchmarks show that the accumulator runs 
+    several orders of magnitude faster than the file driven summers and will 
+    not bottleneck the processing until more workers than seem sensible 
+    would be used.   
+    
+    :param dask_client:  instance of the dask client.  Work is sent to 
+      workers with the submit method of this client.  
+    :param migimage:   master GCLvectorfield3D object to contain result. 
+      The vector values in the input should be zeros when ths functions is 
+      called to initiate accumulation of the result.
+    :param index:   index created by _migrate_components.  Stored in a pickle 
+      file but when this function is run from migrate_event the original 
+      copy in memory is used. 
+    :param verbose:  when set True (default is False) some additional diagnostic
+      information is printed.  Set True only for testing to get timing 
+      data.
+    
+    """
+    filesizes=dict()
+    for tup in index:
+        dfile=tup[1]
+        if dfile in filesizes:
+            filesizes[dfile] += 1
+        else:
+            filesizes[dfile] = 1
+    f_migimage = dask_client.scatter(migimage,broadcast=True)
+    flist = list()
+    for k in filesizes.keys():
+        f = dask_client.submit(sum_scratch_file_content,k,filesizes[k],f_migimage,verbose=verbose)
+        flist.append(f)
+    seq = ddist.as_completed(flist)
+    for f in seq:
+        fimage = f.result()
+        migimage += fimage
+        del fimage
+    return migimage
+
+def delete_scratch_files(index)->int:
+    """
+    Deletes the set of scratch files defined in index - the return of 
+    migrate_components_parallel.  Note that excludes the index file 
+    but the logic of migrate_event prevents it from being written if 
+    this function is to be called. 
+    """
+    # first collect the unique file name using a set container
+    fileset=set()
+    count = 0
+    for tup in index:
+        fileset.add(tup[1])
+    for fname in fileset:
+        if os.path.exists(fname):
+            os.remove(fname)
+        else:
+            print("Warning (migrate_event):   file {} defined in index was not found".format(fname))
+            print("This should not happen but is not fatal - this is likelky a bug that needs to be fixed")
+        count += 1
+    return count
+        
+
+def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
+                    verbose=False,
+                    dryrun=False,
+                    ):
     """
     Top level map function for pwmig.   pwmig is a "prestack" method
     meaning we migrate data from individual source regions (always best
@@ -248,32 +709,151 @@ def migrate_event(db, source_id, pf, collection='GCLfielddata'):
     followed by RFeventStacker.)  This function creates a 3d image
     volume from migration of one ensemble of data assumed linked to
     a single source region.
-
-    :param db:  database handle used to manage data (mspass Database handle).
-    :param source_id:  ObjectId of the source associated with each of waveform
-      to use for imaging. This assumes each wf_Seismogram entry has this
-      field set with the key "source_id".
+    
+    The link to source region is through a database id.  The function 
+    allows the source data to be defined in either the "telecluster"
+    collection (default) or the "source" collection - the normal 
+    MsPASS collection for source data.   Most data will use telecluster
+    unless a nonstandard method is used to assemble the data for processing.
+    
+    :param mspass_client:  as he name implies the instance of 
+      `mspasspy.client.Client` driving this workflow.   The mspass 
+      client contains a hook for both the database and dask cluster clients.
+      Both are required for this algorithm.
+    :param dbname:   string defining the name of the database containing 
+      data to be processed.
+    :param sid:  ObjectId of the document containing source data used by 
+      pwstack to generate plane wave estimates used as input for set of 
+      data to be migrated by this function.  This id is linked to the 
+      argument "source_collection" as the actual key used is the 
+      standard composite key for a normalizing collection id 
+      (i.e collection_id).  The collection name this id links is assumed 
+      defined in pf with the key "source_collection".   
     :param pf:  AntelopePf object containing the control parameters for
       the program (run the pwmig_pfverify function to assure the parameters
       in this file are complete before starting a complete processing run.)
-    :param collection:  collection name where 3d modes are defined
-      (default is GCLfielddata which is the default for the dbsave
-       methods of the set of gclgrid objects.)
+      This file contains most of the fairly long set of configuration 
+      parameters needed to run this function.   See comments in the master 
+      pf and the user manual (under construction) for guidance in setting 
+      these paramters
+    :param verbose:  boolean that when true will generate more volumious 
+      output.   Default is mostly silent. 
+      
+    Warning:   the source data extracted from the database is used to 
+    compute 1d and 3d model travel times.   The algorithm depends upon the 
+    id passed as "sid" matching the source data posted in the Metadata of 
+    all data saved by pwstack used as input.   The function does not currently 
+    check for consistency.  That is assured if the input is from stacks 
+    produced by pseudosource_stacker but custom data assembly processing 
+    must understand how all that works.  
 
     """
-    gclcollection = db[collection]
+    # This first set of parameters were passed as args in earlier 
+    # implementations of this function.   Changed Jan 26 to simplify 
+    # configuration process to run this application
+    source_collection = pf.get_string("source_collection")
+    accumulate = pf.get_bool("accumulate")
+    save_components = pf.get_bool("save_components")
+    parallel = pf.get_bool("parallel")
+    clear_scratch_data = pf.get_bool("clear_scratch_data")
+    save_component_directory = pf.get_string("save_component_directory")
+    # handle auto option for the sliding window size here 
+    sliding_window_size = pf.get("sliding_window_size")
+    if parallel:
+        dask_client = mspass_client.get_scheduler()
+        num_workers = len(dask_client.scheduler_info()['workers'])
+        if sliding_window_size=="auto":
+            N_submit_buffer = 2*num_workers
+        else:
+            N_submit_buffer = pf.get_long("sliding_window_size")
+        if verbose:
+            print("Size of sliding window used for processing=",N_submit_buffer)
+            print("Number of workers in this cluster=",num_workers)
+    else:
+        dask_client = None
+        if verbose:
+            print("Warning:  running serial mode which may run for a long time")
+    db = mspass_client.get_database(dbname)
+    # some basic sanity checks    
+    if not ( accumulate or save_components ):
+        message = "migrate_event:  illegal kwarg combination\n"
+        message += "either accumulate or save_cmponents must be True"
+        raise ValueError(message)
+    if save_components and (not parallel):
+        message = "migrate_event:  illegal kwarg combination\n"
+        message += "save_components options is not supported when parallel is set False"
+        raise ValueError(message)
+    if save_components:
+        if save_component_directory is None:
+            save_dir="./"
+        else:
+            save_dir=save_component_directory
+        savepath = Path(save_dir)
+        savepath.mkdir(parents=True, exist_ok=True)
+        savepath = Path(save_dir).resolve()
+        # strangely resolve dores not return a str but a Path object that 
+        # cannot be used with str operators like _ .  Hence this forced 
+        # type conversion
+        savedir = str(savepath)
+        root_scratch_filename = savedir + "/{}".format(sid)
+    if verbose:
+        print("/////migrate_event setup//////////////////////////////////////")
+        if parallel:
+            if save_components:
+                if accumulate:
+                    print("Running in standard mode")
+                    print("Writing scratch files in directory=",savedir)
+                    if clear_scratch_data:
+                        print("Scratch files will be deleted when finished")
+                    else:
+                        print("Scratch files will be retrained with an index file for later summation (see user manual)")
+                        print("Stacked image from this event will be returned")
+                else:
+                    print("Writing scratch files but not computing a stacked image")
+                    print("This mode assumes the data in the scratch files will be summed later")
+                    print("Warning:   this mode may require large amounts of scratch storage")
+                    print("Monitor usage in scratch directory=",savedir)
+                    print("Also be aware this function will return a None in this mode")
+            else:
+                print("Running parallel in mode using only cluster memory")
+                print("Warning:   this approach works only for smaller image volumes and clusters with sufficient memory")
+        else:
+            print("Running in serial mode")
+            print("This mode requires the least memory but will run for a long time")
+        print("//////////////////////////////////////////////////////////////")
+    # force verbose if dryrun is enabled
+    wmem = worker_memory_estimator(db, sid, pf, source_collection)
+    if dryrun:
+        wmem.report()
+        exit(1)
     # Freeze use of source collection for source_id consistent with MsPASS
     # default schema.
-    doc = db.source.find_one({'_id': source_id})
+    doc = db[source_collection].find_one({'_id': sid})
     if doc == None:
         # This is fatal because expected use is parallel processing of multiple event
         # if any are not defined the job should abort.  Also a preprocess
         # checker is planned to check for such problems
-        raise MsPASSError("migrate_event:  source_id=" + str(source_id) + " not found in database", ErrorSeverity.Fatal)
-    source_lat = doc['lat']
-    source_lon = doc['lon']
-    source_depth = doc['depth']
-    # source_time=doc['time']
+        raise MsPASSError("migrate_event:  source_id=" + str(sid) + " not found in database", ErrorSeverity.Fatal)
+    # This is needed to handle use either source or telecluster for 
+    # source data - they store the data differently
+    # note the algorithm uses relative time and does not need origin time
+    if source_collection=="telecluster":
+        subdoc=doc["hypocentroid"]
+        source_lat=subdoc["lat"]
+        source_lon=subdoc["lon"]
+        source_depth=subdoc["depth"]
+    elif source_collection=="source":
+        source_lat = doc['source_lat']
+        source_lon = doc['source_lon']
+        source_depth = doc['source_depth']
+    else:
+        message = "migrate_event:   illegal value received with source_collection={}\n".format(source_collection)
+        message += "Must be either telecluster (default) or source"
+        raise ValueError(message)
+    if verbose:
+        print("Working on source with latitude=",source_lat,
+              " lon=",source_lon,
+              ", and depth=",source_depth)
 
     # This function is the one that extracts parameters required in
     # what were once inner loops of this program.  As noted there are
@@ -281,22 +861,29 @@ def migrate_event(db, source_id, pf, collection='GCLfielddata'):
     # this control metadata container around.  The dark side is if any
     # new parameters are added changes are required in this function,
     control = _build_control_metadata(pf)
+    if verbose:
+        print("Successfully built internal control structure for pf input")
 
     # This builds the image volume used to accumulate plane wave
     # components.   We assume it was constructed earlier and saved
     # to the database.  This parameter is outside control because it
     # is only used in this function
-    imgname = pf.get_string("stack_grid_name")
-    imggrid = GCLdbread_by_name(db, imgname, object_type="pwmig::gclgrid::GCLgrid3d")
-    migrated_image = GCLvectorfield3d(imggrid, 5)
-    del imggrid
-    migrated_image.zero()
+    if accumulate:
+        imgname = pf.get_string("stack_grid_name")
+        imggrid = GCLdbread_by_name(db, imgname, object_type="pwmig::gclgrid::GCLgrid3d")
+        migrated_image = GCLvectorfield3d(imggrid, 5)
+        del imggrid
+        migrated_image.zero()
+        migrated_image.name=output_image_name
+    # used only if save_components is true but tiny cost to just create it 
+    # to avoid logic errors downstream
+    pickle_file_offset_list=list()
 
     # This function extracts parameters passed around through a Metadata
     # container (what it returns).   These are a subset of those extracted
     # in this function.  This should, perhaps, be passed into this function
     # but the cost of extracting it from pf in this function is assumed tiny
-    base_message = "class pwmig constructor:  "
+    base_message = "migrate_evnet:  :  "
     border_pad = pf.get_long("border_padding")
     # This isn't used in this function, but retain this for now for this test
     # This test will probably be depricated when we the pfmig_verify functions is
@@ -325,34 +912,37 @@ def migrate_event(db, source_id, pf, collection='GCLfielddata'):
     # dux=pf.get_double("slowness_grid_deltau")
     dt = pf.get_double("data_sample_interval")
     zdecfac = pf.get_long("Incident_TTgrid_zdecfac")
-    # duy=dux
-    # dumax=pf.get_double("delta_slowness_cutoff")
-    # dz=pf.get_double("ray_trace_depth_increment")
-    # rcomp_wt=pf.get_bool("recompute_weight_functions")
-    # nwtsmooth=pf.get_long("weighting_function_smoother_length")
-    # if nwtsmooth<=0:
-    #    smooth_wt=False
-    # else:
-    #    smooth_wt=True
-    # taper_length=pf.get_double("taper_length_turning_rays")
-    # Parameters for handling elevation statics.
-    # These are depricated because we now assume statics are applied with
-    # an separate mspass function earlier in the workflow
-    # ApplyElevationStatics=pf.get_bool("apply_elevation_statics")
-    # static_velocity=pf.get_double("elevation_static_correction_velocity")
-    # use_grt_weights=pf.get_bool("use_grt_weights")
-    # use_3d_vmodel=pf.get_bool("use_3d_velocity_model")
-    # The C++ version of pwmig loaded velocity model data and constructed
-    # slowness grids from that.  Here we always use a 3D slowness model
-    # loaded from the database using the new gclgrid library that
-    # is deriven by mongodb.  Conversion from velocity to slowness and
-    # building on from a 1d model is considered a preprocessing step
-    # to assure the following loads will succeed.
-    # WARNING - these names are new and not in any old pf files driving C++ version
-    up3dname = pf.get_string('Pslowness_model_name')
-    us3dname = pf.get_string('Sslowness_model_name')
-    Up3d = GCLdbread_by_name(db, up3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
-    Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+    
+    # load the slowness field directly if it is define.  If not try to 
+    # derive alternate tag of a velocity fieldl name
+    if "P_slowness_model_name" in pf:
+        up3dname = pf.get_string('P_slowness_model_name')
+        us3dname = pf.get_string('S_slowness_model_name')
+        Up3d = GCLdbread_by_name(db, up3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+        Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+    elif "P_velocity_model3d_name" in pf:
+        up3dname = pf.get_string("P_velocity_model3d_name")
+        Up3d = GCLdbread_by_name(db, up3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+        # convert to slowness
+        Up3d = Velocity3DToSlowness(Up3d)
+    else:
+        message="missing required value for 3d P model name\n"
+        message += "defined slowness model with key=P_slowness_model_name\n"
+        message += "or velocity model with key=P_velocity_model3d_name"
+        raise MsPASSError(message,ErrorSeverity.Fatal)
+    if "S_slowness_model_name" in pf:
+        us3dname = pf.get_string('S_slowness_model_name')
+        Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+    elif "S_velocity_model3d_name" in pf:
+        us3dname = pf.get_string("S_velocity_model3d_name")
+        Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+        # convert to slowness
+        Us3d = Velocity3DToSlowness(Us3d)
+    else:
+        message="missing required value for 3d S odel name\n"
+        message += "defined slowness model with key=S_slowness_model_name\n"
+        message += "or velocity model with key=S_velocity_model3d_name"
+        raise MsPASSError(message,ErrorSeverity.Fatal)
     # Similar for 1d models.   The velocity name key is the pf here is the
     # same though since we don't convert to slowness in a 1d model
     # note the old program used files.  Here we store these in mongodb
@@ -367,135 +957,184 @@ def migrate_event(db, source_id, pf, collection='GCLfielddata'):
     # no stable and usable, open-source, travel time calculator in a lower
     # level language.  The performance hit doesn't seem horrible anyway
     # since we only compute this once per event
-    svm0 = BuildSlownessGrid(parent, source_lat, source_lon, source_depth)
+    if verbose:
+        t0=time.time()
+        print("Starting to compute incident P wave raygrid volume")
+    svm0 = BuildSlownessGrid(parent, 
+                             source_lat, 
+                             source_lon, 
+                             source_depth,
+                             verbose=verbose)
     TPfield = ComputeIncidentWaveRaygrid(parent, border_pad,
-                                         Up3d, Vp1d, svm0, zmax * zpad, tmax, dt, zdecfac, True)
+                                         Up3d, Vp1d, svm0, 
+                                           zmax * zpad, tmax, dt, 
+                                             zdecfac, True)
     del Up3d
+    if verbose:
+        print("Time to create incident wave travel time grid=",time.time()-t0)
 
-    # The loop over plane wave components is driven by a list of cursors
-    # created in this MongoDB incantation
-    query = {'source_id': source_id}
+    # The loop over plane wave components is driven by a list of gridids
+    # retried this way.   We also need, however, to subset by source id.  
+    # some complexity here to handle source or telecluster as collection 
+    # used for defining source data
+    key = source_collection + "_id"
+    query = {key: sid}
     gridid_list = db.wf_Seismogram.find(query).distinct('gridid')
+    if parallel:
+        # use of scatter here is known to significantly improve 
+        # performance at the cost of some mile complexity
+        # this avoids needing to serialize each of thes on each submit 
+        # line below
+        t0_scatter=time.time()
+        f_parent = dask_client.scatter(parent,broadcast=True)
+        f_TPfield = dask_client.scatter(TPfield,broadcast=True)
+        f_svm0 = dask_client.scatter(svm0,broadcast=True)
+        f_Us3d = dask_client.scatter(Us3d,broadcast=True)
+        f_Vp1d = dask_client.scatter(Vp1d,broadcast=True)
+        f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
+        # this one isn't that large but probably better pushed this way
+        f_control = dask_client.scatter(control,broadcast=True)
+        if verbose:
+            print("Time to send common data to all workers=",time.time()-t0_scatter)
+        t0_process=time.time()
+        if save_components:
 
-    # from mspasspy.client import Client
-    # import time
-    #
-    # # Create a Spark client without specifying scheduler_host
-    # client = Client(scheduler="spark")
-    # spark_context = client.get_scheduler()
-    #
-    # def process_gridid(gridid):
-    #     # Print the current gridid being processed
-    #     print("Working on gridid=", gridid)
-    #     cursor = query_by_id(gridid, db, source_id)
-    #     # Migrate the component data using the provided function
-    #     migrated_data = _migrate_component(cursor, db, parent, TPfield, svm0, Us3d, Vp1d, Vs1d, control)
-    #     # Timing code (for testing; remove if not needed)
-    #     t0 = time.time()
-    #     # Accumulate the migrated data (the addition operator is assumed to work as in the original code)
-    #     print("Time to sum this plane wave component =", time.time() - t0)
-    #     return migrated_data
-    #
-    # # Create an RDD from gridid_list using Spark to avoid high memory consumption on the driver
-    # rdd = spark_context.parallelize(gridid_list)
-    # # Process each gridid in parallel and reduce (sum) the results using the built-in addition operator
-    # migrated_image = rdd.map(process_gridid).reduce(lambda a, b: a + b)
-    #
-    # return migrated_image
-    # from mspasspy.client import Client
-    # import time, os    from mspasspy.client import Client
-    #     import time
-    #
-    #     # Create a Spark client without specifying scheduler_host
-    #     client = Client(scheduler="spark")
-    #     spark_context = client.get_scheduler()
-    #
-    #     def process_gridid(gridid):
-    #         # Print the current gridid being processed
-    #         print("Working on gridid=", gridid)
-    #         cursor = query_by_id(gridid, db, source_id)
-    #         # Migrate the component data using the provided function
-    #         migrated_data = _migrate_component(cursor, db, parent, TPfield, svm0, Us3d, Vp1d, Vs1d, control)
-    #         # Timing code (for testing; remove if not needed)
-    #         t0 = time.time()
-    #         # Accumulate the migrated data (the addition operator is assumed to work as in the original code)
-    #         print("Time to sum this plane wave component =", time.time() - t0)
-    #         return migrated_data
-    #
-    #     # Create an RDD from gridid_list using Spark to avoid high memory consumption on the driver
-    #     rdd = spark_context.parallelize(gridid_list)
-    #     # Process each gridid in parallel and reduce (sum) the results using the built-in addition operator
-    #     migrated_image = rdd.map(process_gridid).reduce(lambda a, b: a + b)
-    #
-    #     return migrated_image
-
-    # from dask.distributed import as_completed, performance_report
-    # from mspasspy.client import Client
-    # import os
-    # # Create Dask client using mspass client
-    # client = Client(scheduler="dask")
-    # dask_client = client.get_scheduler()
-    # timestamp = time.strftime("%Y%m%d_%H%M%S")
-    # folder = "./dask_reports"
-    # if not os.path.exists(folder):
-    #     os.makedirs(folder)
-    #
-    # with performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
-    #     futures_list = []
-    #     for gridid in gridid_list:
-    #         print("Submitting job for gridid=", gridid)
-    #         cursor = query_by_id(gridid, db, source_id)
-    #         f = dask_client.submit(_migrate_component, cursor, db, parent, TPfield,
-    #                                svm0, Us3d, Vp1d, Vs1d, control)
-    #         futures_list.append(f)
-    #
-    #     for future in as_completed(futures_list):
-    #         migrated_data = future.result()
-    #         t0 = time.time()
-    #         migrated_image += migrated_data
-    #         print("Time to sum this plane wave component =", time.time() - t0)
-    #
-    # return migrated_image
-
-    from mspasspy.client import Client
-    import time, os
-    from dask.distributed import as_completed, performance_report
-
-
-    # Create Dask client using mspass client
-    client = Client(scheduler="dask")
-    dask_client = client.get_scheduler()
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    folder = "./dask_reports"
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-
-    with performance_report(filename=f"./dask_reports/{timestamp}_dask_report.html"):
-        futures_list = []
-        for gridid in gridid_list:
-            print("Submitting job for gridid=", gridid)
-            cursor = query_by_id(gridid, db, source_id)
-            f = dask_client.submit(_migrate_component, cursor, db, parent, TPfield,
-                                   svm0, Us3d, Vp1d, Vs1d, control)
-            futures_list.append(f)
-
-        # Binary tree reduction for parallel accumulation with timely garbage collection
-        def add_images(a, b):
-            # Function to add two migrated image components.
-            return a + b
-
-        while len(futures_list) > 1:
-            new_futures = []
-            for i in range(0, len(futures_list), 2):
-                if i + 1 < len(futures_list):
-                    # Submit a task to add two futures concurrently.
-                    sum_future = dask_client.submit(add_images, futures_list[i], futures_list[i+1])
-                    new_futures.append(sum_future)
+            futures_list = []
+            sidkey = source_collection + "_id"
+            N_q = len(gridid_list)
+            i_q = 0
+            for gridid in gridid_list:
+                query = {sidkey: sid, "gridid": gridid}
+                if verbose:
+                    print("Submitting data for gridid=",gridid," for processing")
+                f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
+                                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
+                                       file_rootpath=root_scratch_filename,
+                                       )
+                #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
+                #                       svm0, Us3d, Vp1d, Vs1d, control)
+                futures_list.append(f)
+                i_q += 1
+                if i_q >= N_submit_buffer:
+                    break    
+            seq=ddist.as_completed(futures_list)
+            for f in seq:
+                t0sum=time.time()
+                # this s a large grid object when accumulate is true but 
+                # only a tuple otherwise
+                f_result = f.result()
+                if save_components:
+                    pickle_file_offset_list.append(f_result)
+                elif accumulate:
+                    migrated_image += f_result
+                    del pwdgrid
+                
+                # this seems necessary to force dask to release worker memory 
+                # used by f
+                dask_client.cancel(f)
+                del f 
+                if verbose:
+                    if save_components:
+                        print("Time to write data to scratch file=",time.time()-t0sum)
+                    elif accumulate:
+                        print("Time to accumulate these data in master=",time.time()-t0sum)
+                if i_q<N_q:
+                    if verbose:
+                        print("Submitting data for gridid=",gridid_list[i_q]," for processing")
+                    query = {sidkey: sid, "gridid": gridid_list[i_q]}
+                    new_f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
+                                           f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
+                                           file_rootpath=root_scratch_filename, 
+                                           )
+                    seq.add(new_f)
+                    i_q += 1
+                    
+            if save_components and not clear_scratch_data:
+                dirfile = make_index_filename(savedir, sid)
+                with open(dirfile,"wb") as fh:
+                    pickle.dump(pickle_file_offset_list,fh)
+            if accumulate and save_components:
+                migrated_image=sum_components_by_file(dask_client,
+                                                migrated_image,
+                                                pickle_file_offset_list,
+                                                verbose=verbose,
+                                                )
+            if clear_scratch_data:
+                Ndeleted = delete_scratch_files(pickle_file_offset_list)
+                if verbose:
+                    print("Finished processing event ",sid)
+                    print("Deleted ",Ndeleted," scratch files before returning")
+            
+            if verbose:
+                print("Time to run parallel section for this event=",time.time() - t0_process)
+            if not accumulate:
+                # nothing to return in this case as nothing was summed into 
+                # migrated_image, which is the normal return
+                return None
+        else:
+            futures_list = []
+            for gridid in gridid_list:
+                query = {sidkey: sid, "gridid": gridid}
+                f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
+                                       f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
+                                       file_rootpath=root_scratch_filename,
+                                       )
+                futures_list.append(f)
+            
+            # Binary tree reduction for parallel accumulation with timely garbage collection
+            def add_images(a, b):
+                # Function to add two migrated image components.
+                # not certain this name test is necessary but results will 
+                # be corupted it it is not satisfied
+                if a.name == output_image_name:
+                    a += b
+                    return a
+                elif b.name == output_image_name:
+                    b += a
+                    return b
                 else:
-                    # Carry forward the odd future.
-                    new_futures.append(futures_list[i])
-            futures_list = new_futures
-
-        migrated_image = futures_list[0].result()
-
+                    message = "add_images function received invalid input\n"
+                    message += "grid a name attribute={} and grid b name attribute={}\n".format(a.name,b.name)
+                    message += "Neither match required name={}".format(output_image_name)
+                    raise RuntimeError(message)
+            
+            while len(futures_list) > 1:
+                new_futures = []
+                for i in range(0, len(futures_list), 2):
+                    if i + 1 < len(futures_list):
+                        # Submit a task to add two futures concurrently.
+                        sum_future = dask_client.submit(add_images, futures_list[i], futures_list[i+1])
+                        new_futures.append(sum_future)
+                    else:
+                        # Carry forward the odd future.
+                        new_futures.append(futures_list[i])
+                futures_list = new_futures
+            
+            migrated_image = futures_list[0].result()      
+    else:
+        idkey = source_collection + "_id"
+        query = {idkey: sid}
+        i=0
+        for gridid in gridid_list:
+            print("Working on gridid=",gridid)
+            t0 = time.time()
+            query["gridid"] = gridid
+            cursor = db.wf_Seismogram.find(query)
+            pwensemble = db.read_data(cursor, collection="wf_Seismogram")
+            cursor.close()
+            t1 = time.time()
+            pwdgrid = migrate_component(pwensemble, parent, TPfield, svm0, Us3d,
+                                        Vp1d, Vs1d, control)
+            t2=time.time()
+            if i==0:
+                migrated_image = pwdgrid
+            else:
+                migrated_image += pwdgrid
+            t3 = time.time()
+            print("Time to read data=",t1=t0) 
+            print("Time to run migrate_component=",t2-t1)
+            print("Time to sum grids=",t3-t2)
+            i += 1
+    # this return needs to move after assimilating parallel summer
     return migrated_image
+

@@ -1,4 +1,4 @@
-#include <omp.h>
+//#include <omp.h>
 // used only for debug - remove when finished
 //#include <iostream>
 //using namespace std;
@@ -45,11 +45,13 @@ PWMIGfielddata migrate_component(ThreeComponentEnsemble& d,
   GCLscalarfield3d *raygrid;
   raygrid = Build_GCLraygrid(parent,VPsvm,Vs1d,zmax,VPVSmax*tmax,dt*VPVSmax);
   PWMIGfielddata pwdgrid(*raygrid);
-  omp_set_num_threads(8);
-  #pragma omp parallel for
+  //omp_set_num_threads(8);
+  //#pragma omp parallel for
   for(int m=0;m<d.member.size();++m)
   {
     PWMIGmigrated_seismogram dout;
+    // Weird things needed to find something unique in metadata for these data
+    //std::cout << m << " "<< d.member[m].get_string("dfile")<<" "<<d.member[m].get_long("foff") << std::endl;
     dout = migrate_one_seismogram(d.member[m], parent, *raygrid, TPgrid,Us3d,
                       Vp1d, Vs1d, control);
     pwdgrid.accumulate(dout);

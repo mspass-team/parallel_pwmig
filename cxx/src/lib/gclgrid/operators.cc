@@ -533,73 +533,90 @@ GCLvectorfield3d& GCLvectorfield3d::operator+=(const GCLvectorfield3d& g)
 		remap=false;
 	else
 		remap=true;
-  stringstream ss;
-	std::vector<int> origin_index;  //needed below for parallel_lookup revision
-	/* these are altered within the loop below by parallel_lookup */
-	int ix1,ix2,ix3;
-        origin_index = g.get_lookup_origin();
-        ix1=origin_index[0];
-        ix2=origin_index[1];
-        ix3=origin_index[2];
-	for(i=0;i<n1;++i)
-	{
-		for(j=0;j<n2;++j)
-		{
-			for(k=0;k<n3;++k)
-			{
-				if(remap)
-				{
-					gp = geo_coordinates(i,j,k);
-					cx = g.gtoc(gp.lat,gp.lon,gp.r);
-				}
-				else
-				{
-					cx.x1=x1[i][j][k];
-					cx.x2=x2[i][j][k];
-					cx.x3=x3[i][j][k];
-				}
-
-				err=g.parallel_lookup(cx.x1,cx.x2,cx.x3,ix1,ix2,ix3);
-				switch(err)
-				{
-				case 1:
-				  /* 1 always means the point is outside the extents or
-				  was found be a search to be outside the grid.  In that case we
-				  just do nothing and keep going */
-				  break;
-				case -1:
-					/* this means the search failed.  To assure it isn't a nonconvergence
-					problem from an inappropriate starting point we try again
-					iterating from the lookup origin   */
-					origin_index=this->get_lookup_origin();
-					ix1=origin_index[0];
-					ix2=origin_index[1];
-					ix3=origin_index[2];
-					err=g.parallel_lookup(cx.x1,cx.x2,cx.x3,ix1,ix2,ix3);
-					/* Subtle detail of switch is exploited here.  If err is zero
-					this falls to the case 0 and the result is set with interpolate.
-					When nonzero we skip and do nothing to this point. We do, however,
-					reset the origin in case lookup left it in a weird place. */
-					if(err!=0)
-					{
-						ix1=origin_index[0];
-						ix2=origin_index[1];
-						ix3=origin_index[2];
-					  break;
-				  }
-				case 0:
-					valnew = g.parallel_interpolate(cx.x1,cx.x2,cx.x3,ix1,ix2,ix3);
-					for(l=0;l<nv;++l) val[i][j][k][l]+=valnew[l];
-					delete [] valnew;
-					break;
-				default:
-				  stringstream ss;
-				  ss << "Illegal return code "<<err<<" from GCLgrid3d::lookup function"<<endl;
-				  throw GCLgridError(ss.str());
-				};
-			}
-		}
-	}
+  if( !remap && (this->n1 == g.n1) && (this->n2 == g.n2) && (this->n3 == g.n3) 
+        && (this->nv == g.nv) )
+  {
+    /* Fast copy possible if all sizes are equal. There is a tiny chance two 
+     * grids with identical sizes and the same origin (remap true) shouldn't 
+     * be merged but not a concern in this package. */
+    double *lhsptr,*rhsptr;
+    lhsptr = ***this->val;
+    rhsptr = ***g.val;
+    /* WARNING:  this can work only because this implementation creates the 
+     * val array as a contiguous memory block*/
+    for(int i=0;i<(this->n1*this->n2*this->n3*this->nv);++i,++lhsptr,++rhsptr)
+      *lhsptr += (*rhsptr);
+  }
+  else
+  {
+    stringstream ss;
+  	std::vector<int> origin_index;  //needed below for parallel_lookup revision
+  	/* these are altered within the loop below by parallel_lookup */
+  	int ix1,ix2,ix3;
+          origin_index = g.get_lookup_origin();
+          ix1=origin_index[0];
+          ix2=origin_index[1];
+          ix3=origin_index[2];
+  	for(i=0;i<n1;++i)
+  	{
+  		for(j=0;j<n2;++j)
+  		{
+  			for(k=0;k<n3;++k)
+  			{
+  				if(remap)
+  				{
+  					gp = geo_coordinates(i,j,k);
+  					cx = g.gtoc(gp.lat,gp.lon,gp.r);
+  				}
+  				else
+  				{
+  					cx.x1=x1[i][j][k];
+  					cx.x2=x2[i][j][k];
+  					cx.x3=x3[i][j][k];
+  				}
+  
+  				err=g.parallel_lookup(cx.x1,cx.x2,cx.x3,ix1,ix2,ix3);
+  				switch(err)
+  				{
+  				case 1:
+  				  /* 1 always means the point is outside the extents or
+  				  was found be a search to be outside the grid.  In that case we
+  				  just do nothing and keep going */
+  				  break;
+  				case -1:
+  					/* this means the search failed.  To assure it isn't a nonconvergence
+  					problem from an inappropriate starting point we try again
+  					iterating from the lookup origin   */
+  					origin_index=this->get_lookup_origin();
+  					ix1=origin_index[0];
+  					ix2=origin_index[1];
+  					ix3=origin_index[2];
+  					err=g.parallel_lookup(cx.x1,cx.x2,cx.x3,ix1,ix2,ix3);
+  					/* Subtle detail of switch is exploited here.  If err is zero
+  					this falls to the case 0 and the result is set with interpolate.
+  					When nonzero we skip and do nothing to this point. We do, however,
+  					reset the origin in case lookup left it in a weird place. */
+  					if(err!=0)
+  					{
+  						ix1=origin_index[0];
+  						ix2=origin_index[1];
+  						ix3=origin_index[2];
+  					  break;
+  				  }
+  				case 0:
+  					valnew = g.parallel_interpolate(cx.x1,cx.x2,cx.x3,ix1,ix2,ix3);
+  					for(l=0;l<nv;++l) val[i][j][k][l]+=valnew[l];
+  					delete [] valnew;
+  					break;
+  				default:
+  				  stringstream ss;
+  				  ss << "Illegal return code "<<err<<" from GCLgrid3d::lookup function"<<endl;
+  				  throw GCLgridError(ss.str());
+  				};
+  			}
+  		}
+  	}
+  }
 	return *this;
 }
 GCLvectorfield3d GCLvectorfield3d::operator+(const GCLvectorfield3d& g) const
