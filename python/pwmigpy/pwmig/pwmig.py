@@ -699,6 +699,7 @@ def delete_scratch_files(index)->int:
         
 
 def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
+                    base_query=None,
                     verbose=False,
                     dryrun=False,
                     ):
@@ -736,9 +737,30 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
       parameters needed to run this function.   See comments in the master 
       pf and the user manual (under construction) for guidance in setting 
       these paramters
+    :param output_image_name:   name to assign to the `GCLvectorfield3d`
+      object that is the normal return of this function.  That is, the object 
+      has a name tag that is useful when the result is saved to MongoDB.   
+      The primary use should be a common tag for the series of results  
+      for all sid's for a particular pf combination.   e.g. you it would 
+      be common to produce multiple results with different 3D velocity models
+      or one a large set of tunable parameters in this application and its 
+      close compantion pwstack.
+    :param base_query: when defined (default is None) the query by source id 
+      will be appended to this base dictionary query.   Because pymongo uses 
+      dictionaries with the key being a document attribute key this must 
+      be linked to something other than a query by the value of sid.   
+      A common example is base_query={"data_tag" : pwstackoutputkey} 
+      where pwstackoutputkey is a name you define for the data_tag value 
+      of the pwstack output.   
+    :type base_query:  must by a dict or None
     :param verbose:  boolean that when true will generate more volumious 
       output.   Default is mostly silent. 
-      
+    :param dryrun:  When true the function verifies the pf data are complete,
+      runs the memory estimation procedure, prints the report from the 
+      memory estimator, and then exits.  i.e. use this only as a 
+      validation of parameters and to estimate how to configure your 
+      virtual cluster before running the application.  Default is False 
+      as True will not runt he application.  
     Warning:   the source data extracted from the database is used to 
     compute 1d and 3d model travel times.   The algorithm depends upon the 
     id passed as "sid" matching the source data posted in the Metadata of 
@@ -977,9 +999,15 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     # retried this way.   We also need, however, to subset by source id.  
     # some complexity here to handle source or telecluster as collection 
     # used for defining source data
+    if base_query is None:
+        query = dict()
+    else:
+        query = base_query.deepcopy()
     key = source_collection + "_id"
-    query = {key: sid}
+    query[key] = sid
     gridid_list = db.wf_Seismogram.find(query).distinct('gridid')
+    if verbose:
+        print("Number of plane wave components to be processed=",len(gridid_list))
     if parallel:
         # use of scatter here is known to significantly improve 
         # performance at the cost of some mile complexity
@@ -1000,19 +1028,16 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         if save_components:
 
             futures_list = []
-            sidkey = source_collection + "_id"
             N_q = len(gridid_list)
             i_q = 0
             for gridid in gridid_list:
-                query = {sidkey: sid, "gridid": gridid}
+                query["gridid"] = gridid
                 if verbose:
                     print("Submitting data for gridid=",gridid," for processing")
                 f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
                                        f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
                                        file_rootpath=root_scratch_filename,
                                        )
-                #f = dask_client.submit(_migrate_component, query, db.name, parent, TPfield,
-                #                       svm0, Us3d, Vp1d, Vs1d, control)
                 futures_list.append(f)
                 i_q += 1
                 if i_q >= N_submit_buffer:
@@ -1041,7 +1066,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                 if i_q<N_q:
                     if verbose:
                         print("Submitting data for gridid=",gridid_list[i_q]," for processing")
-                    query = {sidkey: sid, "gridid": gridid_list[i_q]}
+                    query["gridid"] = gridid_list[i_q]
                     new_f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
                                            f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
                                            file_rootpath=root_scratch_filename, 
@@ -1074,7 +1099,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         else:
             futures_list = []
             for gridid in gridid_list:
-                query = {sidkey: sid, "gridid": gridid}
+                query["gridid"] = gridid
                 f = dask_client.submit(_migrate_component_parallel, query, db.name, f_parent, f_TPfield,
                                        f_svm0, f_Us3d, f_Vp1d, f_Vs1d, f_control,
                                        file_rootpath=root_scratch_filename,
@@ -1112,8 +1137,6 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
             
             migrated_image = futures_list[0].result()      
     else:
-        idkey = source_collection + "_id"
-        query = {idkey: sid}
         i=0
         for gridid in gridid_list:
             print("Working on gridid=",gridid)
