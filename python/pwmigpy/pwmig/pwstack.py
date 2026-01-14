@@ -20,7 +20,6 @@ Author:  Gary L. Pavlis with contributions from Chenbo Yin and Ian Wang.
 """
 import dask
 import math
-from distributed.diagnostics.plugin import WorkerPlugin
 # for parallell debugging - remove for production tests
 import dask.distributed as ddist
 
@@ -33,7 +32,6 @@ from mspasspy.ccore.seismic import SeismogramEnsemble
 from mspasspy.ccore.algorithms.basic import _TopMute
 from mspasspy.ccore.utility import MsPASSError,ErrorSeverity
 from mspasspy.util.seismic import number_live
-from mspasspy.db.client import DBClient
 from mspasspy.db.normalize import ObjectIdMatcher,normalize
 from mspasspy.db.database import Database
 
@@ -44,42 +42,6 @@ from pwmigpy.ccore.pwmigcore import (RectangularSlownessGrid,
                                    DepthDependentAperture,
                                    pwstack_ensemble)
 from pwmigpy.db.database import GCLdbread
-
-
-class MongoDBWorker(WorkerPlugin):
-    """
-    Dask worker plugin to manage MongoDB client per worker.
-    Creates a DBClient instance for each worker and stores it in worker.data.
-    If a worker restarts, dask will recreate the client automatically.
-    
-    This class is a prototype used during development to fix a major issue 
-    in MsPASS resolved through this mechanism.   This class should be removed 
-    and the approach it uses altered when the MsPASS code base is modified 
-    using the same model.  
-    """
-    def __init__(self, dbname, url="mongodb://localhost:27017/", dbclient_key="dbclient"):
-        self.dbname = dbname
-        self.connection_url = url
-        self.dbclient_key = dbclient_key
-        print("MongoDBWorker constructor set dbname=", self.dbname, " and connection_url=", self.connection_url)
-
-    def setup(self, worker):
-        """Called when worker starts - create DBClient for this worker"""
-        #print("MongoDBWorker debug testing - running setup method")
-        if self.connection_url is None:
-            dbclient = DBClient()
-        else:
-            dbclient = DBClient(self.connection_url)
-        worker.data[self.dbclient_key] = dbclient
-
-    def teardown(self, worker):
-        """Called when worker shuts down - cleanup if needed"""
-        #print("MongoDBWorker debug testing:  running teardown method")
-        # from online example - might be able to use dictionary syntax
-        dbclient = worker.data.get(self.dbclient_key)
-        if dbclient:
-            dbclient.close()
-        #print("teardown method finished successfully")
 
 
 def TopMuteFromPf(pf,tag):
