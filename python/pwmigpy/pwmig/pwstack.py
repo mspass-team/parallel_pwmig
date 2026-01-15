@@ -559,6 +559,7 @@ def pwstack_ensemble_python(*arg):
 
 def pwstack(db,pf,source_query=None,
     wf_query=None,
+     minimum_input_data=None,
       source_collection="telecluster",
         slowness_grid_tag='RectangularSlownessGrid',
             data_mute_tag='Data_Top_Mute',
@@ -579,8 +580,8 @@ def pwstack(db,pf,source_query=None,
     loop over a 2d grid of points created in a control structure 
     instantiated from the input parameter pf.   The inputs are complex 
     and interrelated.  See the user manual page under construction for 
-    details on how to run this function that acts like may be 
-    eventually wrapped around a main to be CLI application.   
+    details on how to run this function.   A CLI tool may also be 
+    eventually produced to run this function.  
     """
     # must be dogmatic about this
     if not run_serial and dask_client is None:
@@ -654,6 +655,18 @@ def pwstack(db,pf,source_query=None,
     
     
     for sid in source_id_list:
+        # skip this sid if there size filter is enabled and the size is small
+        if (minimum_input_data is not None):
+            query = base_query.deepcopy()
+            idkey = source_collection + "_id"
+            query[idkey] = sid
+            n_this_sid = db.wf_Seismogram.count_documents(query)
+            if n_this_sid<minimum_input_data:
+                print("Number of waveforms for sid=",sid,
+                      " is ",n_this_sid)
+                print("That number is below minimum_input_data threshold set as ",minimum_input_data)
+                print("Skipping data for this sid")
+                continue
         allqueries=list()
         for rids in staids:
             # build_wfquery returns a dict with lat, lon,
