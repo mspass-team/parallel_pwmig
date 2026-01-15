@@ -879,7 +879,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         query = copy.deepcopy(base_query)
     key = source_collection + "_id"
     query[key] = sid
-    n_total_this_sid = db.wf_Seismogram.find(query)
+    n_total_this_sid = db.wf_Seismogram.count_documents(query)
     if n_total_this_sid<=0:
         print("migrate_event:   no data in database ",dbname,
               " found for sid=",sid)
