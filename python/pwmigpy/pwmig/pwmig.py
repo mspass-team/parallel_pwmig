@@ -761,13 +761,34 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
       validation of parameters and to estimate how to configure your 
       virtual cluster before running the application.  Default is False 
       as True will not runt he application.  
-    Warning:   the source data extracted from the database is used to 
-    compute 1d and 3d model travel times.   The algorithm depends upon the 
-    id passed as "sid" matching the source data posted in the Metadata of 
-    all data saved by pwstack used as input.   The function does not currently 
-    check for consistency.  That is assured if the input is from stacks 
-    produced by pseudosource_stacker but custom data assembly processing 
-    must understand how all that works.  
+    :return:   Normally GCLvectorfield3d (5 components per cell) of result. 
+      May return a None in two situations:  (1) if there are no data in 
+      the database for the sid valued received, or (2) when save_components is 
+      True and accumulate is False. The first always causes a warning 
+      message to be posted with print.  The later occurs silently 
+      as it is a normal, possible way of running this algorithm.  Callers 
+      must handle this condition as normal usage is to save valid results 
+      after devoting the substantial effort to compute it. 
+      
+    Warnings:   
+    1.  The source data extracted from the database is used to 
+        compute 1d and 3d model travel times.   The algorithm depends upon the 
+        id passed as "sid" matching the source data posted in the Metadata of 
+        all data saved by pwstack used as input.   The function does not currently 
+        check for consistency.  That is assured if the input is from stacks 
+        produced by pseudosource_stacker but custom data assembly processing 
+        must understand how all that works.
+    2.  A easy mistake there is currently no easy way to trap is 
+        specifying a 3d model with absolute velocities.  The algorithm 
+        assumes the 3d model is slowness perturbations from background 
+        defined by a 1d reference model.  The only hint you will get that 
+        this is a problem is the content of a message always posted to stdout 
+        when the function computes the incident P wave travel time field.  
+        It always posts a message giving the range of time shifts computed 
+        from the 3d model.   If those numbers are 0 to some large number 
+        with a size of several seconds you have this problem and results 
+        will be meaningless. This issue will never happen unless the pf 
+        has the parameter "use_3d_velocity_model" set true.  
 
     """
     # This first set of parameters were passed as args in earlier 
@@ -795,7 +816,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         dask_client = None
         if verbose:
             print("Warning:  running serial mode which may run for a long time")
-    db = mspass_client.get_database(dbname)
+
     # some basic sanity checks    
     if not ( accumulate or save_components ):
         message = "migrate_event:  illegal kwarg combination\n"
@@ -843,7 +864,29 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
             print("Running in serial mode")
             print("This mode requires the least memory but will run for a long time")
         print("//////////////////////////////////////////////////////////////")
-    # force verbose if dryrun is enabled
+
+    # The loop over plane wave components is driven by a list of gridids
+    # retried from the database.   We also need, however, to subset by source id.  
+    # some complexity here to handle source or telecluster as collection 
+    # used for defining source data.   Here we create the database handle 
+    # and verifty there is any data to process for this sid before we 
+    # enter the processing section immediately following
+    db = mspass_client.get_database(dbname)
+    if base_query is None:
+        query = dict()
+    else:
+        query = base_query.deepcopy()
+    key = source_collection + "_id"
+    query[key] = sid
+    n_total_this_sid = db.wf_Seismogram.find(query)
+    if n_total_this_sid<=0:
+        print("migrate_event:   no data in database ",dbname,
+              " found for sid=",sid)
+        print("query that returned no documents: ",query)
+        print("Detective work on your database may be needed")
+        return None
+    gridid_list = db.wf_Seismogram.find(query).distinct('gridid')
+    # exit after printing memory estimates if dryrun is enabled
     wmem = worker_memory_estimator(db, sid, pf, source_collection)
     if dryrun:
         wmem.report()
@@ -995,17 +1038,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     if verbose:
         print("Time to create incident wave travel time grid=",time.time()-t0)
 
-    # The loop over plane wave components is driven by a list of gridids
-    # retried this way.   We also need, however, to subset by source id.  
-    # some complexity here to handle source or telecluster as collection 
-    # used for defining source data
-    if base_query is None:
-        query = dict()
-    else:
-        query = base_query.deepcopy()
-    key = source_collection + "_id"
-    query[key] = sid
-    gridid_list = db.wf_Seismogram.find(query).distinct('gridid')
+
     if verbose:
         print("Number of plane wave components to be processed=",len(gridid_list))
     if parallel:
