@@ -20,6 +20,7 @@ Author:  Gary L. Pavlis with contributions from Chenbo Yin and Ian Wang.
 """
 import dask
 import math
+import copy
 # for parallell debugging - remove for production tests
 import dask.distributed as ddist
 
@@ -657,7 +658,7 @@ def pwstack(db,pf,source_query=None,
     for sid in source_id_list:
         # skip this sid if there size filter is enabled and the size is small
         if (minimum_input_data is not None):
-            query = base_query.deepcopy()
+            query = copy.deepcopy(base_query)
             idkey = source_collection + "_id"
             query[idkey] = sid
             n_this_sid = db.wf_Seismogram.count_documents(query)

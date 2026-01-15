@@ -4,6 +4,7 @@ from pathlib import Path
 import pickle
 import fcntl
 import os
+import copy
 
 
 import dask.distributed as ddist
@@ -875,7 +876,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     if base_query is None:
         query = dict()
     else:
-        query = base_query.deepcopy()
+        query = copy.deepcopy(base_query)
     key = source_collection + "_id"
     query[key] = sid
     n_total_this_sid = db.wf_Seismogram.find(query)
