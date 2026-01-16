@@ -718,8 +718,7 @@ def pwstack(db,pf,source_query=None,
             # queries held in query
             mybag = mybag.map(read_ensemble,db.name,control,srcm_f,sitem_f)
             # Now run pwstack_ensemble - it has a long arg list
-            #mybag = mybag.map(pwstack_ensemble_python,
-            mybag = mybag.map(lambda q : pwstack_ensemble(q,
+            mybag = mybag.map(pwstack_ensemble,
                     control.SlowGrid,
                       control.data_mute,
                         control.stack_mute,
@@ -729,7 +728,7 @@ def pwstack(db,pf,source_query=None,
                                 control.aperture,
                                   control.aperture_taper_length,
                                     control.centroid_cutoff,
-                                        save_history,''))
+                                        save_history,'')
             mybag = mybag.map(save_ensemble,
                               db.name,
                                   output_data_tag,
