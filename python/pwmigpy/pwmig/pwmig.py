@@ -10,12 +10,14 @@ import copy
 import dask.distributed as ddist
 from mspasspy.ccore.utility import (Metadata,
                                     MsPASSError,
-                                    ErrorSeverity)
+                                    ErrorSeverity,
+                                    AntelopePf)
 from mspasspy.ccore.seismic import (SlownessVector)
+from mspasspy.util.seismic import print_metadata
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth, kilometers2degrees
 
-from pwmigpy.ccore.gclgrid import (GCLvectorfield3d)
+from pwmigpy.ccore.gclgrid import (GCLvectorfield3d,GCLscalarfield3d)
 from pwmigpy.ccore.seispp import RayPathSphere
 from pwmigpy.ccore.pwmigcore import (SlownessVectorMatrix,
                                      ComputeIncidentWaveRaygrid,
@@ -528,18 +530,166 @@ def _migrate_component_parallel(query,
     else:
         return pwdgrid
 
+def verify_model_is_perturbations(umod3d,threshold=3.0)->bool:
+    """
+    An easy mistake to make is to load an absolute velocity model instead of 
+    a perturbation model relative to a 1d reference model.  This does a simple 
+    scan of a slowness model (Note it assumes slowness not velocity) and 
+    returns False if it finds any velocity exceeding the specified 
+    threshold.  The default threshold should work for any rational earth model.
+    Note it only scans the bottom surface as scanning the entire 
+    model should never be necessary with this simple size test.
+    """
+    for i in range(umod3d.n1):
+        for j in range(umod3d.n2):
+            if umod3d.val[i][j][0] > threshold:
+                return False
+    return True
 
-def pwmig_verify(db, pffile="pwmig.pf", GCLcollection='GCLfielddata',
-                 check_waveform_data=False)->bool:
+def pwmig_verify(db, 
+                 pffile, 
+                 check_waveform_data=False,
+                 )->bool:
     """
     Run this function to verify input to pwmig is complete as can be
     established before actually running the algorithm on a complete data set.
     The function writes a standard report to stdout that should be examined
-    carefully before commiting to a long running job.
-
-
+    carefully before commiting to a long running job.  That includes 
+    a report the estimated minimum memory use per worker when the application 
+    is run parallel.
     """
-    print('Warning:  this function is not yet implemented.   Checks only if pf is readable')
+    print("///////////////////////pwmig_verify report///////////////////////")
+    print("//// Checking pffile={}///////////".format(pffile))
+    pfpath = os.environ["PFPATH"]
+    if pfpath is None:
+        print("PFPATH is not set - pffile string will treated as a file path")
+    else:
+        print("The following directories will be scanned sequentially - contents of last override previous")
+        for pfdir in pfpath:
+            print(pfdir)
+    print("Trying to load ",pffile)
+    pf = AntelopePf(pffile)
+    print("Loading global control parameters")
+    print("Most have defaults and you will be warned if the default is used")
+    control = _build_control_metadata(pf)
+    print("Control content - see documentation for how these are used")
+    print_metadata(control)
+    print("/////////////////////////////////////////////////////////////////")
+    print("Verifying velocity model data")
+    # note this is also loaded in control 
+    use3d=pf.get_bool("use_3d_velocity_model")
+    try:
+        if use3d:
+            print("pf requires 3d velocity perturbation model data - attempting to load")
+            [Vp1d,Vs1d,Up3d,Us3d] = load_velocity_models(db, pf, load_3d_models=True)
+            modisok = verify_model_is_perturbations(Up3d)
+            if not modisok:
+                print("WARNING:   3d P slowness model appears to be slowness")
+                print("Must be slowness perturbation from the loaded 1d reference model")
+                print("Check content of model with name= ",pf["P_velocity_model3d_name"])
+            modisok = verify_model_is_perturbations(Us3d)
+            if not modisok:
+                print("WARNING:   3d S slowness model appears to be slowness")
+                print("Must be slowness perturbation from the loaded 1d reference model")
+                print("Check content of model with name= ",pf["S_velocity_model3d_name"])
+            del Up3d
+            del Us3d
+        else:
+            print("pf does not require 3d model - attempting to load only radially symmetric models for P and S")
+            [Vp1d,Vs1d,Up3d,Us3d] = load_velocity_models(db, pf, load_3d_models=False)
+        print("loading successful - check the names match what you expect")
+    except MsPASSError as merr:
+        print("Load failed - load function posted this exception message")
+        print(merr)
+        print("Correct problem and rerun pwmig_verify")
+        print("Continuing to check remainder of pf values")
+    print("/////////////////////////////////////////////////////////////////")
+    print("Verifying required grid geometry objects can be constructed")
+    try:
+        parent_grid_name = pf.get_string("Parent_GCLgrid_Name");
+        parent = GCLdbread_by_name(db, parent_grid_name, object_type="pwmig::gclgrid::GCLgrid")
+    except MsPASSError as merr:
+        print("Failure loading surface grid geometry object with name=",parent_grid_name)
+        print("Reader posted the following message:")
+        print(merr)
+    try:    
+        imgname = pf.get_string("stack_grid_name")
+        print("Trying to load image grid geometry from database using name=",imgname)
+        imggrid = GCLdbread_by_name(db, imgname, object_type="pwmig::gclgrid::GCLgrid3d")
+    except MsPASSError as merr:
+        print("Load failed - message posted by reader:")
+        print(merr)
+    
+    print("/////////////////////////////////////////////////////////////////")
+    print("Validating parameters for computing incident P wave travel times")
+    try:
+        border_pad = pf.get_long("border_padding")
+        print(f"The travel time grid will have {border_pad} additional cell in region defined by parent grid")
+        zpad = pf.get_double("depth_padding_multiplier")
+        if zpad > 1.5 or zpad <= 1.0:
+            print(f"WARNING:   zpad value {zpad} is invalid must be between 1 and 1.5")
+        else:
+            print("zpad=",zpad)
+        zmax = pf.get_double("maximum_depth")
+        tmax = pf.get_double("maximum_time_lag")
+        # dux=pf.get_double("slowness_grid_deltau")
+        dt = pf.get_double("data_sample_interval")
+        zdecfac = pf.get_long("Incident_TTgrid_zdecfac")
+    except MsPASSError as merr:
+        print("Error fetching one of required paremters.  Error message:")
+        print(merr)
+        print("Correct this or migrate_event will not run")
+        
+    print("Other incident travel time grid parameters - see documentation for what they define")
+    print(f"zmax={zmax}, tmax={tmax}, dt={dt}, zdecfac={zdecfac}")
+    print("Note:")
+    print("1.  dt should be approximately the data sample interval but it does not need to exactly match")
+    print("2.  zmax, tmax, and dt are also used for S raygrid and are loaded in control group (see above)")
+    print("/////////////////////////////////////////////////////////////////")
+    print("parallel framework control parameters")
+    source_collection = pf.get_string("source_collection")
+    print(f"pwmig will try to use source data from {source_collection} collection")
+    parallel = pf.get_bool("parallel")
+    accumulate = pf.get_bool("accumulate")
+    save_components = pf.get_bool("save_components")
+    clear_scratch_data = pf.get_bool("clear_scratch_data")
+    save_component_directory=pf.get_string("save_component_directory")
+    if parallel:
+        print("migrate_event will be run in parallel")
+        if accumulate:
+            print("migrate_event will sum plane wave components and return an output image")
+        if save_components:
+            print("migrate_event will save components to scratch directory=",save_component_directory)
+            if clear_scratch_data:
+                print("scratch files will be deleted when migrate_event returns")
+            else:
+                print("scratch files will be retained")
+                print("WARNING:   make sure the target file systems has sufficient space using this option")
+            if not accumulate:
+                print("WARNING:   set to save components but not sum to produce a regular image grid")
+                print("Are you sure this is what you want - this is an advanced feature for handling very large image volumes")
+            dpath = Path(save_component_directory)
+            if dpath.is_dir():
+                if os.access(save_component_directory, os.W_OK):
+                    print("You have write access to this directory - good to proceed")
+                else:
+                    print("WARNING:   you do not have write access to directory=",save_component_directory)
+            else:
+                print(f"WARNING:  directory {save_component_directory} does not exist")
+                print("migrate_event will try to create it but we recommend you create it and verify you can write to that directory")
+        else:
+            if not accumulate:
+                print("WARNING:   migrate_event will abort if both save_compoents and accmulate are set false")
+                print("Fix this or migrate_event will not run")
+    else:
+        print("pf will cause migrate_event to run serial")
+        print("WARNING:  this can take a long time unless your image volume is small")
+        if not accumulate:
+            print("WARNING:  illegal combination.  accumulate must be set True for serial processing")
+            
+            
+        
+
     # First we test the parameter file for completeness.
     # we use a generic pf testing function in mspass.
     # algorithm="pwmig"
@@ -697,7 +847,54 @@ def delete_scratch_files(index)->int:
             print("This should not happen but is not fatal - this is likelky a bug that needs to be fixed")
         count += 1
     return count
-        
+
+def load_velocity_models(db, pf, load_3d_models=False):
+    """
+    """
+    if load_3d_models:
+        # load the slowness field directly if it is define.  If not try to 
+        # derive alternate tag of a velocity fieldl name
+        if "P_slowness_model_name" in pf:
+            up3dname = pf.get_string('P_slowness_model_name')
+            us3dname = pf.get_string('S_slowness_model_name')
+            Up3d = GCLdbread_by_name(db, up3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+            Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+        elif "P_velocity_model3d_name" in pf:
+            up3dname = pf.get_string("P_velocity_model3d_name")
+            Up3d = GCLdbread_by_name(db, up3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+            # convert to slowness
+            Up3d = Velocity3DToSlowness(Up3d)
+        else:
+            message="missing required value for 3d P model name\n"
+            message += "defined slowness model with key=P_slowness_model_name\n"
+            message += "or velocity model with key=P_velocity_model3d_name"
+            raise MsPASSError(message,ErrorSeverity.Fatal)
+        if "S_slowness_model_name" in pf:
+            us3dname = pf.get_string('S_slowness_model_name')
+            Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+        elif "S_velocity_model3d_name" in pf:
+            us3dname = pf.get_string("S_velocity_model3d_name")
+            Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
+            # convert to slowness
+            Us3d = Velocity3DToSlowness(Us3d)
+        else:
+            message="missing required value for 3d S odel name\n"
+            message += "defined slowness model with key=S_slowness_model_name\n"
+            message += "or velocity model with key=S_velocity_model3d_name"
+            raise MsPASSError(message,ErrorSeverity.Fatal)
+    else:
+        # return default constructed objects (tiny) when 3d not needed
+        Us3d = GCLscalarfield3d()
+        Up3d = GCLscalarfield3d()
+    # Similar for 1d models.   The velocity name key is the pf here is the
+    # same though since we don't convert to slowness in a 1d model
+    # note the old program used files.  Here we store these in mongodb
+    Pmodel1d_name = pf.get_string("P_velocity_model1d_name");
+    Smodel1d_name = pf.get_string("S_velocity_model1d_name");
+    Vp1d = vmod1d_dbread_by_name(db, Pmodel1d_name)
+    Vs1d = vmod1d_dbread_by_name(db, Smodel1d_name)
+    return [Vp1d,Vs1d,Up3d,Us3d]
+      
 
 def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                     base_query=None,
@@ -949,7 +1146,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     # container (what it returns).   These are a subset of those extracted
     # in this function.  This should, perhaps, be passed into this function
     # but the cost of extracting it from pf in this function is assumed tiny
-    base_message = "migrate_evnet:  :  "
+    base_message = "migrate_event:  :  "
     border_pad = pf.get_long("border_padding")
     # This isn't used in this function, but retain this for now for this test
     # This test will probably be depricated when we the pfmig_verify functions is
@@ -958,19 +1155,6 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     if zpad > 1.5 or zpad <= 1.0:
         message = 'Illegal value for depth_padding_multiplier={zpad}\nMust be between 1 and 1.5'.format(zpad=zpad)
         raise MsPASSError(base_message + message, ErrorSeverity.Invalid)
-    # these were used in file based io - revision uses mongodb but some of this
-    # may need to be put into the control Metadata container
-    # fielddir=pf.get_string("output_field_directory");
-    # if os.path.exists(fielddir):
-    #    if not os.path.isdir():
-    #        message='fielddir parameter defined in parameter file as {}\n'.format(          fielddir)
-    #        message+='File exists but is not a directory as required'
-    #        raise MsPASSError(base_message+message,ErrorSeverity.Invalid)
-    # else:
-    #     os.mkdir(fielddir)
-    # dfilebase=pf.get_string("output_filename_base");
-    # Following C++ pwmig the output fieldnames, which become file names
-    # defined with a dir/dfile combo i a MongoDB collection, are dfilebase+'_'+source_id
     # This is now always true - TODO:  verify that and when sure delete this next line
     # use_depth_variable_transformation=pf.get_bool("use_depth_variable_transformation")
     zmax = pf.get_double("maximum_depth")
@@ -979,43 +1163,8 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     dt = pf.get_double("data_sample_interval")
     zdecfac = pf.get_long("Incident_TTgrid_zdecfac")
     
-    # load the slowness field directly if it is define.  If not try to 
-    # derive alternate tag of a velocity fieldl name
-    if "P_slowness_model_name" in pf:
-        up3dname = pf.get_string('P_slowness_model_name')
-        us3dname = pf.get_string('S_slowness_model_name')
-        Up3d = GCLdbread_by_name(db, up3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
-        Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
-    elif "P_velocity_model3d_name" in pf:
-        up3dname = pf.get_string("P_velocity_model3d_name")
-        Up3d = GCLdbread_by_name(db, up3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
-        # convert to slowness
-        Up3d = Velocity3DToSlowness(Up3d)
-    else:
-        message="missing required value for 3d P model name\n"
-        message += "defined slowness model with key=P_slowness_model_name\n"
-        message += "or velocity model with key=P_velocity_model3d_name"
-        raise MsPASSError(message,ErrorSeverity.Fatal)
-    if "S_slowness_model_name" in pf:
-        us3dname = pf.get_string('S_slowness_model_name')
-        Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
-    elif "S_velocity_model3d_name" in pf:
-        us3dname = pf.get_string("S_velocity_model3d_name")
-        Us3d = GCLdbread_by_name(db, us3dname, object_type="pwmig::gclgrid::GCLscalarfield3d")
-        # convert to slowness
-        Us3d = Velocity3DToSlowness(Us3d)
-    else:
-        message="missing required value for 3d S odel name\n"
-        message += "defined slowness model with key=S_slowness_model_name\n"
-        message += "or velocity model with key=S_velocity_model3d_name"
-        raise MsPASSError(message,ErrorSeverity.Fatal)
-    # Similar for 1d models.   The velocity name key is the pf here is the
-    # same though since we don't convert to slowness in a 1d model
-    # note the old program used files.  Here we store these in mongodb
-    Pmodel1d_name = pf.get_string("P_velocity_model1d_name");
-    Smodel1d_name = pf.get_string("S_velocity_model1d_name");
-    Vp1d = vmod1d_dbread_by_name(db, Pmodel1d_name)
-    Vs1d = vmod1d_dbread_by_name(db, Smodel1d_name)
+    [Vp1d,Vs1d,Up3d,Us3d] = load_velocity_models(db, pf)
+
     # Now bring in the grid geometry.  First the 2d surface of pseudostation points
     parent_grid_name = pf.get_string("Parent_GCLgrid_Name");
     parent = GCLdbread_by_name(db, parent_grid_name, object_type="pwmig::gclgrid::GCLgrid")
