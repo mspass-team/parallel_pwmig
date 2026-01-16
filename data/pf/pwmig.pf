@@ -1,49 +1,41 @@
+# these are loaded as the control dictionary in pwmig
+use_3d_velocity_model false
+use_grt_weights true
+stack_only false
+border_padding	10
+depth_padding_multiplier 1.2
+taper_length_turning_rays 1.5
+recompute_weight_functions true
+weighting_function_smoother_length 10
+slowness_grid_deltau	0.01
+ray_trace_depth_increment	1.0
+maximum_depth	1000.0
+maximum_time_lag	120.0
+data_sample_interval 0.05
+
+# velocity model parameters
 Pvelocity_model_grid ak135
 Svelocity_model_grid ak135
 P_velocity_model1d_name	ak135_P
 S_velocity_model1d_name	ak135_S
 P_velocity_model3d_name	ak135_Pvelocity
 S_velocity_model3d_name	ak135_Svelocity
-use_3d_velocity_model true
+# These are used to define grid geometries - must be preloaded in db
 Parent_GCLgrid_Name all48
 stack_grid_name	all48
-border_padding	10
-output_field_directory	migrated_data
-output_filename_base testus48
-use_depth_variable_transformation	false
-maximum_depth	1000.0
-maximum_time_lag	120.0
-fixed_u_mode	false
-slowness_grid_deltau	0.01
-ray_trace_depth_increment	1.0
-data_sample_interval 0.05
-recompute_weight_functions true
-stack_only false
-weighting_function_smoother_length 10
-use_grt_weights true
-taper_length_turning_rays 1.5
-# New for coherence option
-coherence_grid_name	all48coh
-coherence_raygrid_decimation	10
-coherence_smoother_length 10
-# don't need this as this model has a pad above zero eleation of 25 km 
-Velocity_model_surface_tolerance 0.01
-save_partial_sums false
-#
-# new parameter added july 23 
-#
+# parameters used for computing incident P wave travel time 3d raygrid
 Incident_TTgrid_zdecfac 10
 depth_padding_multiplier 1.2
-apply_elevation_statics false
-delta_slowness_cutoff 1.0
-elevation_static_correction_velocity 8.4
+# note several parameters used for incident P raygrid are also used 
+# in S raygrid - they are defined above in the control group
+# hence it is in the group loaded as control
 #
-# Moved from argument lists for migrate_component to here Jan 26
+# New parameters mostly related to parallel framework
 #
 source_collection telecluster
 parallel true
 # can be a number or auto.  If auto twice number of workers
-sliding_window_size auto
+sliding_window_size 100
 # note when save_components is false accumulation is serial in driver (slow)
 # even when running parallel.   When true and parallel accumulation is 
 # done by reading data from scratch files
@@ -54,4 +46,4 @@ save_components true
 clear_scratch_data true
 # user should alway customize this one
 # directory where the scratch files are written when save_component is true
-save_component_directory /N/slate/pavlis/pwmigtest
+save_component_directory /N/scratch/pavlis/pwmigtest
