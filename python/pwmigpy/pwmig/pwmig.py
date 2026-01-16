@@ -548,15 +548,17 @@ def verify_model_is_perturbations(umod3d,threshold=3.0)->bool:
 
 def pwmig_verify(db, 
                  pffile, 
-                 check_waveform_data=False,
                  )->bool:
     """
     Run this function to verify input to pwmig is complete as can be
     established before actually running the algorithm on a complete data set.
     The function writes a standard report to stdout that should be examined
-    carefully before commiting to a long running job.  That includes 
-    a report the estimated minimum memory use per worker when the application 
-    is run parallel.
+    carefully before commiting to a long running job. This mostly verifies the 
+    parameter file including verifying objects loaded with pf defintions 
+    exist and can be loaded. 
+    
+    Note a full verify process should follow a call to this with 
+    a report from the memory estimator above. 
     """
     print("///////////////////////pwmig_verify report///////////////////////")
     print("//// Checking pffile={}///////////".format(pffile))
@@ -608,6 +610,7 @@ def pwmig_verify(db,
     try:
         parent_grid_name = pf.get_string("Parent_GCLgrid_Name");
         parent = GCLdbread_by_name(db, parent_grid_name, object_type="pwmig::gclgrid::GCLgrid")
+        del parent
     except MsPASSError as merr:
         print("Failure loading surface grid geometry object with name=",parent_grid_name)
         print("Reader posted the following message:")
@@ -616,6 +619,7 @@ def pwmig_verify(db,
         imgname = pf.get_string("stack_grid_name")
         print("Trying to load image grid geometry from database using name=",imgname)
         imggrid = GCLdbread_by_name(db, imgname, object_type="pwmig::gclgrid::GCLgrid3d")
+        del imggrid
     except MsPASSError as merr:
         print("Load failed - message posted by reader:")
         print(merr)
@@ -686,23 +690,11 @@ def pwmig_verify(db,
         print("WARNING:  this can take a long time unless your image volume is small")
         if not accumulate:
             print("WARNING:  illegal combination.  accumulate must be set True for serial processing")
-            
-            
-        
+    print("/////////////////////////////////////////////////////////////////")
+    print("////////////////// End pwmig_verify report //////////////////////")
+    print("/////////////////////////////////////////////////////////////////")
 
-    # First we test the parameter file for completeness.
-    # we use a generic pf testing function in mspass.
-    # algorithm="pwmig"
-    # pf=AntelopePf(pffile)
-    # TODO  this does not exists and is subject to design changes from github discussion
-    # pfverify(algorithm,pf)
-    # this also doesn't exists.  Idea is to verify all model files are
-    # present and valid
-    # pwmig_verify_files(pf)
-    # now verify the database collection and print a report
-    # TODO;  need to implement this fully - this is rough
-    # 1  verify all gclfeield and vmodel data
-    # print a report for waveform inputs per event
+
 
 
 def make_index_filename(savedir,sid,extension="index"):
