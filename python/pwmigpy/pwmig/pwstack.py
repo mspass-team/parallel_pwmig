@@ -87,7 +87,7 @@ class pwstack_control:
     are all optional name tags for pf components where optional names 
     could be helpful.   
     """
-    def __init__(self,db,pf,slowness_grid_tag='RectangularSlownessGrid',
+    def __init__(self,pf,slowness_grid_tag='RectangularSlownessGrid',
             data_mute_tag='data_top_mute',
                  stack_mute_tag='stack_top_mute',
                      save_history=False,instance='undefined'):
@@ -126,24 +126,6 @@ class pwstack_control:
         else:
             modelname = 'iasp91'
         self.model = TauPyModel(model=modelname)
-        # These parameters define thing things outside pwstack_ensemble
-        # but are important control
-        # keep only dbname - caching the Database object creates serialization issues
-        self.dbname=db.name
-        gridname=pf.get_string("pseudostation_grid_name")
-        self.pseudostation_gridname=gridname
-        # We query by name and object type - this may require additional
-        # tags to find the unique grid requested but for how keep it simple
-        query={'name' : gridname,'object_type' : 'pwmig::gclgrid::GCLgrid'}
-        nfound=db.GCLfielddata.count_documents(query)
-        if nfound<1:
-            raise MsPASSError("GCLgrid with name="+gridname+" was not found in database",
-                              "Fatal")
-        elif nfound>1:
-            raise MsPASSError("GCLgrid with name="+gridname+" is ambiguous - multiple documents have that name tag",
-                              "Fatal")
-        doc=db.GCLfielddata.find_one(query)
-        self.stagrid=GCLdbread(db,doc)
 
 def site_query(db,lat,lon,ix1,ix2,cutoff,units='km')->dict:
     """
@@ -598,8 +580,21 @@ def pwstack(db,pf,source_query=None,
             print("Source collection will be limited by the following query:")
             print(source_query)
         print("Attempting to build control structure from pf data input")
-    control=pwstack_control(db,pf,slowness_grid_tag,data_mute_tag,
+    control=pwstack_control(pf,slowness_grid_tag,data_mute_tag,
                     stack_mute_tag,save_history,instance)
+    pseudostation_gridname=pf.get_string("pseudostation_grid_name")
+    # We query by name and object type - this may require additional
+    # tags to find the unique grid requested but for how keep it simple
+    query={'name' : pseudostation_gridname,'object_type' : 'pwmig::gclgrid::GCLgrid'}
+    nfound=db.GCLfielddata.count_documents(query)
+    if nfound<1:
+        raise MsPASSError("GCLgrid with name="+pseudostation_gridname+" was not found in database",
+                          "Fatal")
+    elif nfound>1:
+        raise MsPASSError("GCLgrid with name="+pseudostation_gridname+" is ambiguous - multiple documents have that name tag",
+                          "Fatal")
+    doc=db.GCLfielddata.find_one(query)
+    stagrid=GCLdbread(db,doc)
     if source_query==None:
         base_query={}
     else:
@@ -637,13 +632,13 @@ def pwstack(db,pf,source_query=None,
         sitem_f = dask_client.scatter(sitematcher, broadcast=True)
     cutoff=control.aperture.maximum_cutoff()
     staids=list()
-    for i in range(control.stagrid.n1):
-        for j in range(control.stagrid.n2):
+    for i in range(stagrid.n1):
+        for j in range(stagrid.n2):
 
             # We use this instead of the lat and lon methods for
             # a minor efficiency difference.  lat and lon have to call
             # both call this method and return only one of 3 elements
-            gc=control.stagrid.geo_coordinates(i,j)
+            gc=stagrid.geo_coordinates(i,j)
             lat=math.degrees(gc.lat)
             lon=math.degrees(gc.lon)
             # I could not make this work.   I don't think there is a
@@ -700,7 +695,7 @@ def pwstack(db,pf,source_query=None,
                                 control.aperture,
                                   control.aperture_taper_length,
                                     control.centroid_cutoff,
-                                        False,'')
+                                        save_history,'')
     
                 # This repeats code in save_ensemble_parallel and maybe 
                 # should be a function called both places
@@ -723,7 +718,8 @@ def pwstack(db,pf,source_query=None,
             # queries held in query
             mybag = mybag.map(read_ensemble,db.name,control,srcm_f,sitem_f)
             # Now run pwstack_ensemble - it has a long arg list
-            mybag = mybag.map(pwstack_ensemble_python,
+            #mybag = mybag.map(pwstack_ensemble_python,
+            mybag = mybag.map(lambda q : pwstack_ensemble(q,
                     control.SlowGrid,
                       control.data_mute,
                         control.stack_mute,
@@ -733,7 +729,7 @@ def pwstack(db,pf,source_query=None,
                                 control.aperture,
                                   control.aperture_taper_length,
                                     control.centroid_cutoff,
-                                        save_history,'')
+                                        save_history,''))
             mybag = mybag.map(save_ensemble,
                               db.name,
                                   output_data_tag,
