@@ -1,5 +1,6 @@
 
 import os
+from pathlib import Path
 from bson.objectid import ObjectId
 
 from mspasspy.ccore.utility import (MsPASSError, Metadata,AntelopePf)
@@ -103,14 +104,13 @@ def GCLdbsave(db, obj, collection="GCLfielddata",
     except:
         raise MsPASSError("GCLdbsave:  Invalid data - required arg 2 must by a child of BasicGCLgrid",
                           "Invalid")
-    dbh = db[collection]
-
-
     # Default to current directory if dir is not defined
     if dir == None:
         cwd = os.getcwd()
         outdir = cwd
     else:
+        path = Path(dir)
+        path.mkdir(parents=True, exist_ok=True)
         outdir = os.path.abspath(dir)
     if dfile == None:
         id = ObjectId()
@@ -150,7 +150,7 @@ def GCLdbsave(db, obj, collection="GCLfielddata",
                 message = 'GCLdbsave:  key=',k,' is defined in auxdata dict\nNot allowed because that is a keyword in the required parameters'
                 raise MsPASSError(message,'Fatal')
             md[k]=auxdata[k]
-    id = GCLdbsave_attributes(db, md)
+    id = GCLdbsave_attributes(db, md, collection=collection)
     md['_id']=id
     return md
 
@@ -496,7 +496,6 @@ def pf_to_dict(pf):
     # This is a trick to extract only the simple name-value pairs.
     # It can work because Arr and Tbl data are stored in separate maps
     # in the pf object
-    # TODO:  that is theoretical - test me
     md = Metadata(pf)
     result = Metadata2dict(md)
     # Tbls are stored as an array of strings
