@@ -562,15 +562,19 @@ def pwmig_verify(db,
     """
     print("///////////////////////pwmig_verify report///////////////////////")
     print("//// Checking pffile={}///////////".format(pffile))
-    pfpath = os.environ["PFPATH"]
+    pfpath = os.environ.get("PFPATH")
     if pfpath is None:
         print("PFPATH is not set - pffile string will treated as a file path")
     else:
+        print("PFPATH is set")
         print("The following directories will be scanned sequentially - contents of last override previous")
-        for pfdir in pfpath:
-            print(pfdir)
+        print(pfpath)
     print("Trying to load ",pffile)
     pf = AntelopePf(pffile)
+    print(f"Succesfully loaded {pffile}")
+    print("Note:   migrate_event uses the data object created a pffile")
+    print("        Makde sure your run script has the same PFPATH defined or uses an absolute path to pffile") 
+    print("/////////////////////////////////////////////////////////////////")
     print("Loading global control parameters")
     print("Most have defaults and you will be warned if the default is used")
     control = _build_control_metadata(pf)
