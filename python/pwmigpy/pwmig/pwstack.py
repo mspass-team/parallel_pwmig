@@ -533,13 +533,6 @@ def save_ensemble(ens, dbname_or_handle, data_tag, storage_mode="gridfs", outdir
     return sdret
     
 
-def pwstack_ensemble_python(*arg):
-    """
-    Temporary workaround for a problem with return in dask. Patch we can
-    hopefully remove when we understand this problem better.
-    """ 
-    return pwstack_ensemble(*arg)
-
 def pwstack(db,pf,source_query=None,
     wf_query=None,
      minimum_input_data=None,
