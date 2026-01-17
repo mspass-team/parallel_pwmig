@@ -459,10 +459,10 @@ def main(args=None):
             ens = normalize(ens,site_matcher)
             # TODO:  this is a temporary workaround for a bug in decorators
             # use the ensemble version when it is resolved
-            #dataset[key] = rotate_to_standard(ens)
-            for d in ens.member:
-                if d.live:
-                    d.rotate_to_standard()
+            dataset[key] = rotate_to_standard(ens)
+            #for d in ens.member:
+            #    if d.live:
+            #        d.rotate_to_standard()
             dataset[key]=ens
         for algorithm in control.algorithm_list:
             if control.enabled(algorithm):
