@@ -131,6 +131,7 @@ def load_special_attributes(ensemble,algorithm,argdoc,clusterdoc)->SeismogramEns
     cdkeys=["gridname","hypocentroid","gridcell"]
     for key in cdkeys:
         ensemble[key] = clusterdoc[key]
+    ensemble["telecluster_id"] = clusterdoc["_id"]
     return ensemble
         
 
