@@ -366,7 +366,7 @@ def main(args=None):
         action="store",
         type=str,
         default="pseudosource_stacker.pf",
-        help="Define parameter file that defines tool options",
+        help="Define parameter file that defines tool options (default pseudosouorce_stacker.pf)",
     )
     parser.add_argument(
         "-outdir",
@@ -374,7 +374,7 @@ def main(args=None):
         action="store",
         type=str,
         default="binned_stacks",
-        help="Defined directory for stacked outputs - files of stack for each pseudostation point",
+        help="Set directory for stacked output files (default ./binned_stacks)",
         )
     parser.add_argument(
         "-tag",
@@ -382,7 +382,7 @@ def main(args=None):
         action="store",
         type=str,
         default="pseudosource_stacks",
-        help="data_tag value passed to Dataase.save_data for all outputs",
+        help="data_tag value passed to Dataase.save_data for all outputs (default pseudosource_stacks)",
         )
     parser.add_argument(
         "-m",
@@ -390,13 +390,13 @@ def main(args=None):
         action="store",
         type=str,
         default="iasp91",
-        help="reference 1d earth model for travel time calculations",
+        help="Reference 1d earth model for travel time calculations (default iasp91)",
         )
     parser.add_argument(
            "-v",
            "--verbose",
            action="store_true",
-           help="Print some progress data instead of start and end info"
+           help="Print some progress data instead of start and end info (off by default)"
         )
     args = parser.parse_args(args)
     if args.verbose:
