@@ -21,6 +21,7 @@ import argparse
 import copy
 import time
 from bson.objectid import ObjectId
+import dask.distributed as ddist
 from mspasspy.client import Client
 from mspasspy.db.normalize import ObjectIdMatcher,normalize
 from mspasspy.ccore.utility import AntelopePf,Metadata,ErrorSeverity
@@ -445,7 +446,10 @@ def process_group(clusterdoc,
                              dfile=dfile,
                              data_tag=output_data_tag,
                              )
-
+    # cleanup before exiting and return the id from clusterdoc
+    del stacked_data
+    del dataset
+    return clusterdoc["_id"]
 def main(args=None):
     """
     Command line tool replacement for original C++ program in original 
@@ -581,7 +585,18 @@ def main(args=None):
         cursor.close()
         # may need the sliding window algorithm here but we just 
         # submit them all and call compute here
-        dask_client.gather(futureslist)
+        # this didn't work - memory problems
+        #dask_client.gather(futureslist)
+        # thinking this might work as the number of futures here should 
+        # not be huge and we only need to do housecleaning when each on 
+        # finishes.  This housecleaning seems necessary as dask will hog 
+        # memory otherwise
+        seq = ddist.as_completed(futureslist)
+        for f in seq:
+            f_id = f.result()
+            dask_client.cancel(f)
+            if verbose:
+                print("Completed processing of data for telecluster_id=",f_id)
         
     else:
         # outer loop over groupings defined by telecluster
