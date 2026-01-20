@@ -581,7 +581,7 @@ def main(args=None):
         cursor.close()
         # may need the sliding window algorithm here but we just 
         # submit them all and call compute here
-        mspass_client.gather(futureslist)
+        dask_client.gather(futureslist)
         
     else:
         # outer loop over groupings defined by telecluster
