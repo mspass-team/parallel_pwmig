@@ -515,7 +515,7 @@ def main(args=None):
             "-w",
             "--swsize",
             action="store",
-            type="int",
+            type=int,
             default="20",
             help="Sliding window of futures size (default 20)",
         )
