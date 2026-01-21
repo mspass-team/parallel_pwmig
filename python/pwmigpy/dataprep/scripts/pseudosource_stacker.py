@@ -512,6 +512,14 @@ def main(args=None):
             help="Run parallel (default is serial)",
         )
     parser.add_argument(
+            "-w",
+            "--swsize",
+            action="store",
+            type="int",
+            default="20",
+            help="Sliding window of futures size (default 20)",
+        )
+    parser.add_argument(
            "-v",
            "--verbose",
            action="store_true",
@@ -557,17 +565,25 @@ def main(args=None):
     for key in auxmdkeys:
         janitor.add2keepers(key)
     base_query = get_base_query_from_pf(pf)
-    n = db.telecluster.count_documents({})
-    print("pseudosource_stacker:  working on {} source clusters defined in telecluster collection".format(n))
+    N = db.telecluster.count_documents({})
+    if N==0:
+        message="pseudosource_stacker:   telecluster collection is empty - no data to process"
+        raise RuntimeError(message)
+    print("pseudosource_stacker:  working on {} source clusters defined in telecluster collection".format(N))
     if parallel:
-        cursor = db.telecluster.find({})
-        futureslist=list()
+        swsize = args.swsize
         f_site_matcher = dask_client.scatter(site_matcher,broadcast=True)
         f_refmodel = dask_client.scatter(refmodel,broadcast=True)
+        # cache the entire list of documents or we will get cursor timeouts
+        doclist=list()
+        cursor = db.telecluster.find({})
         for doc in cursor:
-            # intentionally don't allow verbose option in parallel mode
-            # Would need want to use dask.distributed.print which I 
-            # considered an unnecessary complication
+            doclist.append(doc)
+        cursor.close()
+        futureslist=list()
+        i_p = 0
+        for doc in doclist:
+            # assumes process_group default for verbose is false
             f=dask_client.submit(process_group,
                                  doc,
                                  dbname,
@@ -582,22 +598,35 @@ def main(args=None):
                                  dtag,
                )
             futureslist.append(f)
-        cursor.close()
-        # may need the sliding window algorithm here but we just 
-        # submit them all and call compute here
-        # this didn't work - memory problems
-        #dask_client.gather(futureslist)
-        # thinking this might work as the number of futures here should 
-        # not be huge and we only need to do housecleaning when each on 
-        # finishes.  This housecleaning seems necessary as dask will hog 
-        # memory otherwise
+            i_p += 1
+            if i_p>=swsize:
+                break
+        
+        # Use the sliding window algorithm
+        # similar to pwmig use but there is not accumulation here
         seq = ddist.as_completed(futureslist)
         for f in seq:
             f_id = f.result()
             dask_client.cancel(f)
+            del f
             if verbose:
                 print("Completed processing of data for telecluster_id=",f_id)
-        
+            if i_p < N:
+                f=dask_client.submit(process_group,
+                                     doclist[i_p],
+                                     dbname,
+                                     base_query,
+                                     magwt_control,
+                                     f_site_matcher,
+                                     control,
+                                     janitor,
+                                     snrwt_control,
+                                     f_refmodel,
+                                     output_directory,
+                                     dtag,
+                   )
+                seq.add(f)
+                i_p += 1
     else:
         # outer loop over groupings defined by telecluster
         # parallel version driven by list of docs
