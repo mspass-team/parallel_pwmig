@@ -29,6 +29,7 @@ from mspasspy.ccore.seismic import SeismogramEnsemble
 from mspasspy.algorithms.basic import rotate_to_standard
 from mspasspy.util.Janitor import Janitor
 from mspasspy.util.db_utils import fetch_dbhandle,MongoDBWorker
+from mspasspy.util.seismic import number_live
 import pwmigpy.dataprep.binned_stacking as bsm
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth, kilometers2degrees
@@ -369,8 +370,11 @@ def process_group(clusterdoc,
                                     )
     else:
         dataset = bsm.load_and_sort(db)
+    input_size = 0
+    input_live_size = 0
     for key in dataset.keys():
         ens = dataset[key]
+        input_size += number_live(ens)
         # this loads metadata from site collection
         # important to note that default used here loads the data into 
         # the ensemble Metadata container.  That is corect as the 
@@ -383,6 +387,9 @@ def process_group(clusterdoc,
         #    if d.live:
         #        d.rotate_to_standard()
         dataset[key]=ens
+        input_live_size += number_live(ens)
+    output_size = 0
+    output_number_live = 0
     for algorithm in control.algorithm_list:
         if control.enabled(algorithm):
             argdoc = control.getargs(algorithm)
@@ -420,6 +427,7 @@ def process_group(clusterdoc,
                                     residual_norm_floor=argdoc["residual_norm_floor"],
                                     )
             if stacked_data.live:
+                output_size += number_live(stacked_data)
                 stacked_data=load_special_attributes(stacked_data,
                                                      algorithm,
                                                      argdoc,
@@ -439,6 +447,7 @@ def process_group(clusterdoc,
                 # function.
                 stacked_data["telecluster_events"] = source_id_list
                 dfile=make_dfile_name(clusterdoc)
+                output_number_live += number_live(stacked_data)
                 db.save_data(stacked_data,
                              collection="wf_Seismogram",
                              storage_mode="file",
@@ -449,15 +458,25 @@ def process_group(clusterdoc,
     # cleanup before exiting and return the id from clusterdoc
     del stacked_data
     del dataset
-    return clusterdoc["_id"]
+    return [clusterdoc,input_size,input_live_size,output_size,output_number_live]
 def main(args=None):
     """
     Command line tool replacement for original C++ program in original 
     pwmig that was called RFeventstacker.   
     
-    This tool stackes data binned previouisly by telecluster the 
+    This tool stacks data binned previouisly by telecluster the 
     cluster components stored in documents in a collection called 
-    "telecluster".
+    "telecluster".   It is primarily intended to deconvolved data but 
+    with proper use it should work for an alternative to implement the 
+    ancient idea from Scott Neal's dissertation with decon of 
+    pseeudostation stacked data.  That is a research problem though.  
+    
+    Experience has shown this algorithm is almost immediately io bound 
+    even with only a handful of workers.   The problem seems worse 
+    on HPC lustre file systems where reading the data requires a fair 
+    number of file open-closes.   To be concrete on the IU cluster 
+    I found running this reading lustre files any more than 8 workers 
+    was pointless.   
     """
     t0=time.time()
     if args is None:
@@ -570,6 +589,8 @@ def main(args=None):
         message="pseudosource_stacker:   telecluster collection is empty - no data to process"
         raise RuntimeError(message)
     print("pseudosource_stacker:  working on {} source clusters defined in telecluster collection".format(N))
+    if verbose:
+        print("telecluster_id number_in number_in_live number_out number_live_out")
     if parallel:
         swsize = args.swsize
         f_site_matcher = dask_client.scatter(site_matcher,broadcast=True)
@@ -582,6 +603,7 @@ def main(args=None):
         cursor.close()
         futureslist=list()
         i_p = 0
+
         for doc in doclist:
             # assumes process_group default for verbose is false
             f=dask_client.submit(process_group,
@@ -606,11 +628,12 @@ def main(args=None):
         # similar to pwmig use but there is not accumulation here
         seq = ddist.as_completed(futureslist)
         for f in seq:
-            f_id = f.result()
+            f_out = f.result()
             dask_client.cancel(f)
             del f
             if verbose:
-                print("Completed processing of data for telecluster_id=",f_id)
+                idout = f_out[0]['_id']
+                print(f"{idout} {f_out[1]} {f_out[2]}  {f_out[3]} {f_out[4]}")
             if i_p < N:
                 f=dask_client.submit(process_group,
                                      doclist[i_p],
@@ -632,7 +655,7 @@ def main(args=None):
         # parallel version driven by list of docs
         cursor = db.telecluster.find({})   
         for clusterdoc in cursor:
-            process_group(clusterdoc,
+            f_out = process_group(clusterdoc,
                               dbname,
                               base_query,
                               magwt_control,
@@ -645,6 +668,9 @@ def main(args=None):
                               dtag,
                               verbose=verbose,
             )
+            if verbose:
+                idout = f_out[0]['_id']
+                print(f"{idout} {f_out[1]} {f_out[2]}  {f_out[3]} {f_out[4]}")
     t=time.time()
     print("Elapsed time=",t-t0)
 
