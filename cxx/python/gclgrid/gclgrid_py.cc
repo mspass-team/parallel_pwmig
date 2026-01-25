@@ -130,9 +130,38 @@ public:
 
 };
 
+/* This special function is used in gridstacker to copy arrays of 
+field data to a numpy array.   This allows stacking of migrated events 
+in gridstacker to be done with numpy which has a lot of advantages in 
+a python environment.   Thank you Gemini for this suggestion.
+*/
+py::array_t<double> vectorfield_data_to_numpy(pwmig::gclgrid::GCLvectorfield3d& fld)
+{
+    /* These type conversion silence pedantic type mismatche warnings */
+    size_t n1,n2,n3,nv;
+    n1 = static_cast<size_t>(fld.n1);
+    n2 = static_cast<size_t>(fld.n2);
+    n3 = static_cast<size_t>(fld.n3);
+    nv = static_cast<size_t>(fld.nv);
+    std::vector<size_t> shape = {n1,n2,n3,nv};
+    std::vector<size_t> strides = {
+        (n2+n3+nv)*sizeof(double),
+        (n3+nv)*sizeof(double),
+        (nv)*sizeof(double),
+        sizeof(double)
+    };
+    return py::array_t<double> (
+        shape,
+        strides,
+        &(fld.val[0][0][0][0])
+    );
+}
+
 PYBIND11_MODULE(gclgrid, m) {
 /* This is needed to allow vector inputs and outputs */
 py::bind_vector<std::vector<double>>(m, "DoubleVector");
+
+m.def("vectorfield_data_to_numpy",&vectorfield_data_to_numpy);
 
 py::class_<pwmig::gclgrid::Geographic_point>(m,"Geographic_point","Point on Earth defined in regional cartesian system")
   .def(py::init<>())
