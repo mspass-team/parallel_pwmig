@@ -145,9 +145,9 @@ py::array_t<double> vectorfield_data_to_numpy(pwmig::gclgrid::GCLvectorfield3d& 
     nv = static_cast<size_t>(fld.nv);
     std::vector<size_t> shape = {n1,n2,n3,nv};
     std::vector<size_t> strides = {
-        (n2+n3+nv)*sizeof(double),
-        (n3+nv)*sizeof(double),
-        (nv)*sizeof(double),
+        n2*n3*nv*sizeof(double),
+        n3*nv*sizeof(double),
+        nv*sizeof(double),
         sizeof(double)
     };
     return py::array_t<double> (
