@@ -532,7 +532,7 @@ def save_ensemble(ens, dbname_or_handle, data_tag, storage_mode="gridfs", outdir
                                          data_tag=data_tag)
     return sdret
 
-def pwmstack_ensemble_python(ens,
+def pwstack_ensemble_python(ens,
                 slowness_grid,
                     data_mute,
                         stack_mute,
