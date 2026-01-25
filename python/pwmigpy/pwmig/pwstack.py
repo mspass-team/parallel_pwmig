@@ -531,7 +531,23 @@ def save_ensemble(ens, dbname_or_handle, data_tag, storage_mode="gridfs", outdir
                                      dfile=dfile,
                                          data_tag=data_tag)
     return sdret
-    
+
+def pwmstack_ensemble_python(ens,
+                slowness_grid,
+                    data_mute,
+                        stack_mute,
+                            stack_count_cutoff,
+                                tstart,
+                                    tend, 
+                                        aperture,
+                                            aperture_taper_length,
+                                                centroid_cutoff,
+                                                    save_history,
+                                                        algid,
+                                                        ):
+    return pwstack_ensemble(ens,slowness_grid,data_mute,stack_mute,stack_count_cutoff,
+                   tstart,tend,aperture,aperture_taper_length,centroid_cutoff,
+                       save_history,algid)
 
 def pwstack(db,pf,source_query=None,
     wf_query=None,
@@ -711,7 +727,7 @@ def pwstack(db,pf,source_query=None,
             # queries held in query
             mybag = mybag.map(read_ensemble,db.name,control,srcm_f,sitem_f)
             # Now run pwstack_ensemble - it has a long arg list
-            mybag = mybag.map(pwstack_ensemble,
+            mybag = mybag.map(pwstack_ensemble_python,
                     control.SlowGrid,
                       control.data_mute,
                         control.stack_mute,
