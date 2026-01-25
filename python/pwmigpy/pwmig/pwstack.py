@@ -126,6 +126,7 @@ class pwstack_control:
         else:
             modelname = 'iasp91'
         self.model = TauPyModel(model=modelname)
+        self.pseudostation_gridname=pf.get_string("pseudostation_grid_name")
 
 def site_query(db,lat,lon,ix1,ix2,cutoff,units='km')->dict:
     """
