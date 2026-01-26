@@ -339,6 +339,69 @@ def set_fake_starttimes(stacked_data,clusterdoc,refmodel):
                 d.elog.log_error("set_fake_starttimes",message,ErrorSeverity.Invalid)
     return stacked_data
 
+def special_index_state(db,index_name="pseudosource_stacker_index",keys=["data_tag", "source_id"])->int:
+    """
+    This function is used in pseudsource_stacker to test if teh special index required by the application 
+    exists.   The index must match in two ways:  (1) the "name" field and (2) the keys defined for the 
+    index IN ORDER (indexes are hierarchic).   
+
+    Note the **kwargs paameters for this function should not be changed.  They there to make this 
+    slightly more generic.   The index name, in particular, could change.  
+
+    :param db:  Database object referencing the dataset of interest.
+    :return:  
+      0  - index with name defined by index_name does not exist and can be created
+      1  - index exists and matches name and keys
+      -1  - index exists with name of index_name but the keys do not match 
+    """
+    cursor=db.wf_Seismogram.list_indexes()
+    indexdoc=None
+    for doc in cursor:
+        if doc['name'] == index_name:
+            indexdoc=doc
+            break
+    if indexdoc is None:
+        return 0
+    # indexdoc is not a dictionary or a list but has some concepts from both
+    # This algorithm is used because len is defined but "in" does not work
+    indexkeys = indexdoc['key']
+    if len(indexkeys)!=len(keys):
+        return -1
+    i=0
+    for k in keys:
+        if keys[i]!=k:
+            return -1
+        i+=1
+    return 1
+
+def verify_wfindex(db,verbose=False):
+    """
+    Called from main to assure the special index with the fixed name 
+    "pseudosource_stacker_index" is defined and of the required form.  
+    That form is the two keys in order:  "data_tag" and "source_id".  
+    If the index exists and matches reuirements the function does nothing. 
+    If an index with the special name does not exist it is created. 
+    If the index exists but is not of the required form the function 
+    throws a RuntimeError exception to abort the application.  
+    """
+    index_state = special_index_state(db)
+    match index_state:
+        case -1:
+            message = "verify_wfindex:  special index for wf_Seismogram called pseudosource_stacker_index exists but does not match requirements\n"
+            message += "remove the existing index and run rerun this application - it will create the correct index automatically"
+            raise RuntimeError(message)
+        case 0:
+            if verbose:
+                print("index with name pseudosource_stacker_index exists in correct form and will improve performance")
+        case 1:
+            if verbose:
+                print("pseudosource_stacker_index does not exist - creating it now")
+                db.wf_Seismogram.create_index([("data_tag" , 1),('source_id' , 1)],name="pseudosource_stacker_index")
+        case _:
+            message = "verify_wfindex:  special_index_state returned an unexpected falue={}\n".format(index_state)
+            message += "This should not happen and is a bug that needs to be fixed"
+            raise RuntimeError(message)
+
 def process_group(clusterdoc,
                   dbname,
                   base_query,
@@ -584,6 +647,11 @@ def main(args=None):
     for key in auxmdkeys:
         janitor.add2keepers(key)
     base_query = get_base_query_from_pf(pf)
+    # for efficiency it is important to create this index if it doesn't exist
+    # this function defined above handles that 
+    # if it returns the index exists with the right form.
+    # it can throw an exception but when it does the program will and should abort
+    verify_wfindex(db,verbose=verbose)
     N = db.telecluster.count_documents({})
     if N==0:
         message="pseudosource_stacker:   telecluster collection is empty - no data to process"
