@@ -546,7 +546,7 @@ def main(args=None):
         args = sys.argv[1:]
     parser = argparse.ArgumentParser(
         prog = "pseudosource_stacker",
-        usage="%(prog)s dbname [-pf pffile -outdir output_directory -tag dtag -model 1dmodel -v]",
+        usage="%(prog)s dbname [-pf pffile -outdir output_directory -tag dtag -model 1dmodel -w sliding_window_size -p -v]",
         description="Stack groups of common source gathers using groupings created by telecluster",
     )
     parser.add_argument(
@@ -661,6 +661,8 @@ def main(args=None):
         print("telecluster_id number_in number_in_live number_out number_live_out")
     if parallel:
         swsize = args.swsize
+        if verbose:
+            print(f"Using sliding window size={swsize}")
         f_site_matcher = dask_client.scatter(site_matcher,broadcast=True)
         f_refmodel = dask_client.scatter(refmodel,broadcast=True)
         # cache the entire list of documents or we will get cursor timeouts
