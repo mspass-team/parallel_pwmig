@@ -390,10 +390,10 @@ def verify_wfindex(db,verbose=False):
             message = "verify_wfindex:  special index for wf_Seismogram called pseudosource_stacker_index exists but does not match requirements\n"
             message += "remove the existing index and run rerun this application - it will create the correct index automatically"
             raise RuntimeError(message)
-        case 0:
-            if verbose:
-                print("index with name pseudosource_stacker_index exists in correct form and will improve performance")
         case 1:
+            if verbose:
+                print("index with name pseudosource_stacker_index exists in correct form - no action needed")
+        case 0:
             if verbose:
                 print("pseudosource_stacker_index does not exist - creating it now")
                 db.wf_Seismogram.create_index([("data_tag" , 1),('source_id' , 1)],name="pseudosource_stacker_index")
