@@ -560,9 +560,10 @@ def pwstack(db,pf,source_query=None,
                      save_history=False,instance='undefined',
                         storage_mode='gridfs',
                              outdir=None,
-                                 output_data_tag='test_pwstack_output',
+                                 output_data_tag='pseudostation_stacks',
                                      run_serial=True,
                                          dask_client=None,
+                                            restart=False,
                                              verbose=False):
     """
     Driver function for the pwstack algorithm.
@@ -619,6 +620,22 @@ def pwstack(db,pf,source_query=None,
         id=doc['_id']
         source_id_list.append(id)
     base_cursor.close()
+    if restart:
+        id2use = source_collection + "_id"
+        finished_list = checkpoint_report(db,data_tag=output_data_tag,idkey=id2use,print_report=False)
+        filtered_list=list()
+        for sid in source_id_list:
+            if sid not in finished_list:
+                filtered_list.append(sid)
+        if verbose:
+            print("Running in restart mode")
+            print(f"The following values for {id2use} appear to have been previously processed and will be dropped")
+            for sid in finished_list:
+                print(sid)
+            print("These will be processed in this run")
+            for sid in filtered_list:
+                print(sid)
+        source_id_list = filtered_list
     if verbose:
         print("Number of sources ids used to drive this run=",len(source_id_list))
     if source_collection=="source":
@@ -749,3 +766,96 @@ def pwstack(db,pf,source_query=None,
         if verbose:
             print("Finished processing data for source with id=",sid)
             print("Number of ensembled processed=",len(sdret))
+
+
+def checkpoint_report(db,
+                      data_tag="pseudostation_stacks",
+                      idkey="telecluster_id",
+                      print_report=True,
+                      )->list:
+    """
+    Utility function used when pwstack does not finish.
+    
+    pwstack can run for hours even on a modern cluster so checkpointing 
+    is a useful capability.   This function should be used in two ways:
+    
+        1.  If you run pwstack and have any reason to think it didn't 
+            run to completion, run this function interactively in a 
+            jupyter notebook with print_report set True (the default).  
+            Look at the report to evaluate the net steps.
+        2.  If the report indicates processing had not completed, 
+            rerun pwstack with `restart=True` (default is False).   
+            When that arg is set True this function is run by pwstack 
+            and the list of source ids (by default telecluster_id) 
+            will be filtered using the return of this function.   
+            That happens inside pwstack so the only thing needed by 
+            you is to change the default for "restart" to True.
+    :param db:   database containing expected output of pwstack
+    :type db:  MsPASS Databse object
+    :param data_key:   value of "data_key" attribute used as the 
+      "output_data_tag" when pwstack was run.  Default is the same as 
+      pwstack ("pseudosource_stacks").
+    :type data_key:  str
+    :param idkey:  source id key (default "telecluster_id")
+    :type idkey:  str
+    :param print_repport:  boolean that when True the function emits a 
+      fairly length report with print statements.  When False nothing is 
+      printed.
+    :return:  list of idkey values present in db - used to define 
+      what was previously processed when used inside pwstack in rstart mode.  
+            
+    """
+    gidcounts=dict()
+    gidsets=dict()
+    query={"data_tag" : data_tag}
+    null_tcidcount=0
+    null_gidcount=0
+    gid_not_defined=0
+    totaldocs = 0   # count ourselves for efficiency instead of calling count_documents again
+    cursor=db.wf_Seismogram.find(query)
+    for doc in cursor:
+        if idkey in doc:
+            tcid = doc[idkey]
+            if "gridid" in doc:
+                gid = doc['gridid']
+                if gid is None:
+                    null_gidcount += 1
+                else:
+                    if tcid in gidcounts:
+                        val = gidcounts[tcid]
+                        val += 1
+                        gidcounts[tcid] = val
+                    else:
+                        gidcounts[tcid] = 1
+                    if tcid in gidsets:
+                        val = gidsets[tcid]
+                        val.add(gid)
+                        gidsets[tcid] = val
+                    else:
+                        x=set()
+                        x.add(gid)
+                        gidsets[tcid] = x
+            else:
+                gid_not_defined += 1
+        else:
+            null_tcidcount += 1
+        totaldocs += 1
+    if print_report:
+        print("Count of plane wave components for completed source ids")
+        print(f"{idkey} count")
+        for key in gidcounts.keys():
+            # logic above guarantees ids should match in these two dict containers
+            print(key,gidcounts[key],len(gidsets[key]))
+        print("All counts should match.")
+        print("If they do not, it means processing of that event was aborted before completion")
+        print(f"If that is so, edit the wf_Seismogram collection to remove data for that id with data tag={data_tag}")
+        print("////////////////////////////////////////////////////////////////////////////////")
+        print("These show potential database problems:")
+        print(f"Number of documents with null {idkey}={null_tcidcount}")
+        print(f"Number of documents with null gridid={null_gidcount}")
+        print(f"Number of documents with {idkey} defined but with no data for gridid={gid_not_defined}")
+        print(f"Number of documents scanned={totaldocs}")
+        print("If any of those are nonzero, some detective work on  wf_Seismogram is recommended")
+        print("////////////////////////////////////////////////////////////////////////////////")
+        
+    return gidcounts.keys()
