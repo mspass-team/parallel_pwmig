@@ -764,8 +764,17 @@ def pwstack(db,pf,source_query=None,
                                 )
             sdret = mybag.compute()
         if verbose:
+            # a mspass feature is "is_live" is always set in the return of 
+            # save_data.   Do this a bit cautiously though and handle None
+            # as well
+            number_saved=0
+            for s in sdret:
+                if s is not None:
+                    if s['is_live']:
+                        number_saved += 1
+                        
             print("Finished processing data for source with id=",sid)
-            print("Number of ensembled processed=",len(sdret))
+            print("Number of ensembles with live data saved=",number_saved)
 
 
 def checkpoint_report(db,
