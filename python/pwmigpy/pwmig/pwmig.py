@@ -894,6 +894,7 @@ def load_velocity_models(db, pf, load_3d_models=False):
 
 def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                     base_query=None,
+                    minimum_data=10000,
                     verbose=False,
                     dryrun=False,
                     ):
@@ -1073,11 +1074,9 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     key = source_collection + "_id"
     query[key] = sid
     n_total_this_sid = db.wf_Seismogram.count_documents(query)
-    if n_total_this_sid<=0:
-        print("migrate_event:   no data in database ",dbname,
-              " found for sid=",sid)
-        print("query that returned no documents: ",query)
-        print("Detective work on your database may be needed")
+    if n_total_this_sid<=minimum_data:
+        print(f"migrate_event:   number of Seismograms for sid={sid} is less than specified mininum_data={minimum_data}")
+        print("These data will be ignored: returning a Null result")
         return None
     gridid_list = db.wf_Seismogram.find(query).distinct('gridid')
     # exit after printing memory estimates if dryrun is enabled
