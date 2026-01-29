@@ -999,7 +999,9 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     sliding_window_size = pf.get("sliding_window_size")
     if parallel:
         dask_client = mspass_client.get_scheduler()
-        num_workers = len(dask_client.scheduler_info()['workers'])
+        active_workers = dask_client.nthreads()
+        num_workers = len(active_workers)
+        del active_workers
         if sliding_window_size=="auto":
             N_submit_buffer = 2*num_workers
         else:
