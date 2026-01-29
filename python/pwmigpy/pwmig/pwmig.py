@@ -482,7 +482,7 @@ def _migrate_component_parallel(query,
     :param Us3D:   3d slowness model for S 
     :param Vp1d:  1d P wave reference model
     :param Vs1d:  1d S wave referenc model
-    :param control:   control structure created by migrate_event.
+    :param control:   control structure (Metadata) created by migrate_event.
     :param verbose:  boolean with usual function.  Works silently when 
       False but posts some messages with dask.distibuted.print 
       when True.  
@@ -1119,7 +1119,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     # what were once inner loops of this program.  As noted there are
     # so many parameters it makes the code more readable to pass just
     # this control metadata container around.  The dark side is if any
-    # new parameters are added changes are required in this function,
+    # new parameters are added changes are required in this function 
     control = _build_control_metadata(pf)
     if verbose:
         print("Successfully built internal control structure for pf input")
@@ -1160,7 +1160,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     dt = pf.get_double("data_sample_interval")
     zdecfac = pf.get_long("Incident_TTgrid_zdecfac")
     
-    [Vp1d,Vs1d,Up3d,Us3d] = load_velocity_models(db, pf)
+    [Vp1d,Vs1d,Up3d,Us3d] = load_velocity_models(db, pf, load_3d_models=control["use_3d_vmodel"])
 
     # Now bring in the grid geometry.  First the 2d surface of pseudostation points
     parent_grid_name = pf.get_string("Parent_GCLgrid_Name");
@@ -1177,10 +1177,12 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                              source_lon, 
                              source_depth,
                              verbose=verbose)
+    print("Debug:  finished computing svm0")
+    print(f"{parent.n1=} {parent.n2=} {border_pad=} {tmax=} {zmax=} {zpad=} {dt=} {tmax=} {zdecfac=} {control["use_3d_model"]=}")
     TPfield = ComputeIncidentWaveRaygrid(parent, border_pad,
                                          Up3d, Vp1d, svm0, 
                                            zmax * zpad, tmax, dt, 
-                                             zdecfac, True)
+                                             zdecfac, control["use_3d_vmodel"])
     del Up3d
     if verbose:
         print("Time to create incident wave travel time grid=",time.time()-t0)
