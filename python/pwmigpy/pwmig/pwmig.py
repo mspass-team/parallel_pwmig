@@ -1160,7 +1160,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     dt = pf.get_double("data_sample_interval")
     zdecfac = pf.get_long("Incident_TTgrid_zdecfac")
     
-    [Vp1d,Vs1d,Up3d,Us3d] = load_velocity_models(db, pf, load_3d_models=control["use_3d_vmodel"])
+    [Vp1d,Vs1d,Up3d,Us3d] = load_velocity_models(db, pf, load_3d_models=control["use_3d_velocity_model"])
 
     # Now bring in the grid geometry.  First the 2d surface of pseudostation points
     parent_grid_name = pf.get_string("Parent_GCLgrid_Name");
@@ -1178,12 +1178,12 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                              source_depth,
                              verbose=verbose)
     print("Debug:  finished computing svm0")
-    use3d=control["use_3d_model"]
+    use3d=control["use_3d_velocity_model"]
     print(f"{parent.n1=} {parent.n2=} {border_pad=} {tmax=} {zmax=} {zpad=} {dt=} {tmax=} {zdecfac=} {use3d=}")
     TPfield = ComputeIncidentWaveRaygrid(parent, border_pad,
                                          Up3d, Vp1d, svm0, 
                                            zmax * zpad, tmax, dt, 
-                                             zdecfac, control["use_3d_vmodel"])
+                                             zdecfac, control["use_3d_velocity_model"])
     del Up3d
     if verbose:
         print("Time to create incident wave travel time grid=",time.time()-t0)
