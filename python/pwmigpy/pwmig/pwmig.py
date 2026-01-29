@@ -1197,10 +1197,13 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         # this avoids needing to serialize each of thes on each submit 
         # line below
         t0_scatter=time.time()
+        print("DEBUG:  starting to broadcast common data")
         f_parent = dask_client.scatter(parent,broadcast=True)
         f_TPfield = dask_client.scatter(TPfield,broadcast=True)
         f_svm0 = dask_client.scatter(svm0,broadcast=True)
+        print("Tryint to broadcast empty Us3d container - likely problem")
         f_Us3d = dask_client.scatter(Us3d,broadcast=True)
+        print("Finished - trying to broadcast 1d velocity models")
         f_Vp1d = dask_client.scatter(Vp1d,broadcast=True)
         f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
         # this one isn't that large but probably better pushed this way
