@@ -1178,7 +1178,8 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                              source_depth,
                              verbose=verbose)
     print("Debug:  finished computing svm0")
-    print(f"{parent.n1=} {parent.n2=} {border_pad=} {tmax=} {zmax=} {zpad=} {dt=} {tmax=} {zdecfac=} {control["use_3d_model"]=}")
+    use3d=control["use_3d_model"]
+    print(f"{parent.n1=} {parent.n2=} {border_pad=} {tmax=} {zmax=} {zpad=} {dt=} {tmax=} {zdecfac=} {use3d=}")
     TPfield = ComputeIncidentWaveRaygrid(parent, border_pad,
                                          Up3d, Vp1d, svm0, 
                                            zmax * zpad, tmax, dt, 
