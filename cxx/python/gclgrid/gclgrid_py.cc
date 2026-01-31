@@ -134,6 +134,10 @@ public:
 field data to a numpy array.   This allows stacking of migrated events 
 in gridstacker to be done with numpy which has a lot of advantages in 
 a python environment.   Thank you Gemini for this suggestion.
+
+Warning Warning Warning - this function returns a reference to the 
+memory held by the val 4d array inside object fld.  Use with caution in 
+python as if the return is manipulated the val will be too.  
 */
 py::array_t<double> vectorfield_data_to_numpy(pwmig::gclgrid::GCLvectorfield3d& fld)
 {
@@ -161,7 +165,8 @@ PYBIND11_MODULE(gclgrid, m) {
 /* This is needed to allow vector inputs and outputs */
 py::bind_vector<std::vector<double>>(m, "DoubleVector");
 
-m.def("vectorfield_data_to_numpy",&vectorfield_data_to_numpy);
+m.def("vectorfield_data_to_numpy",&vectorfield_data_to_numpy,
+  "Return reference to vector field data as a 4d numpy array - warning not a copy but a refernce");
 
 py::class_<pwmig::gclgrid::Geographic_point>(m,"Geographic_point","Point on Earth defined in regional cartesian system")
   .def(py::init<>())
@@ -312,10 +317,17 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
     GCLgrid result(n1,n2);
     /* This template function takes all the parameters from md and
     sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return */
+    alloc the arrays.  Hence for zero size we can just return 
+    default constructed skeleton*/
     pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid>(result,md);
 
-    if(array_size_from_md > 0)
+    if(array_size_from_md == 0)
+    {
+      /* Empty data signals what was received was a default constructed 
+      skeletcon of the object.*/
+      return GCLgrid{};
+    }
+    else
     {
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
@@ -337,8 +349,8 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       array_buffer=t[4].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.x3[0],info.ptr,sizeof(double)*size_array);
+      return result;
     }
-    return result;
   }
   ))
 ;
@@ -429,11 +441,13 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
     pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
     /* We need this additional call for 3d grid - a design flaw in gclgrid*/
     pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
-    /* Default constructed result has null arrays so we do nothing with
-    them other than load the metadata. When the sizes are nonzero the
-    constructor is assumed to have allocated the space for the arrays
-    we copy in below*/
-    if(array_size_from_md > 0)
+    if(array_size_from_md == 0)
+    {
+      /* Empty data signals what was received was a default constructed 
+      skeletcon of the object.*/
+      return GCLgrid3d{};
+    }
+    else
     {
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
@@ -454,8 +468,8 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
       array_buffer=t[4].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.x3[0][0],info.ptr,sizeof(double)*size_array);
+      return result;
     }
-    return result;
   }
   ))
 ;
@@ -582,10 +596,15 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
     pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
     /* We need this additional call for 3d grid - a design flaw in gclgrid*/
     pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
-    /* If the size is zero the arrays are assumed set NULL - that would
-    be behavior for a default constructed object.  Otherwise the constructor
-    we used above will create the data arrays we can push the array data to.*/
-    if(array_size_from_md>0)
+    /* If the size is zero the arrays are assumed set NULL.  When that is 
+    the case return a default constructed skeleton*/
+    if(array_size_from_md == 0)
+    {
+      /* Empty data signals what was received was a default constructed 
+      skeletcon of the object.*/
+      return GCLscalarfield3d{};
+    }
+    else
     {
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
@@ -610,8 +629,8 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       array_buffer=t[5].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.val[0][0],info.ptr,sizeof(double)*size_array);
-    }
-    return result;
+      return result;
+    } 
   }
   ))
 ;
@@ -690,10 +709,15 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
     pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
     /* I think we need to set this one specially - the above may not set it */
     result.nv=nv;
-    /* If the size is zero the arrays are assumed set NULL - that would
-    be behavior for a default constructed object.  Otherwise the constructor
-    we used above will create the data arrays we can push the array data to.*/
-    if(array_size_from_md>0)
+    /* If the size is zero the arrays are assumed set NULL.  When that is 
+    the case return a default constructed skeleton*/
+    if(array_size_from_md == 0)
+    {
+      /* Empty data signals what was received was a default constructed 
+      skeletcon of the object.*/
+      return GCLvectorfield3d{};
+    }
+    else
     {
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
@@ -721,8 +745,8 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
       array_buffer=t[5].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.val[0][0][0],info.ptr,sizeof(double)*size_val);
+      return result;
     }
-    return result;
   }
   ))
 ;
@@ -796,10 +820,15 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
     pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
     /* I think we need to set this one specially - the above may not set it */
     result.nv=nv;
-    /* If the size is zero the arrays are assumed set NULL - that would
-    be behavior for a default constructed object.  Otherwise the constructor
-    we used above will create the data arrays we can push the array data to.*/
-    if(array_size_from_md>0)
+    /* If the size is zero the arrays are assumed set NULL.  When that is 
+    the case return a default constructed skeleton*/
+    if(array_size_from_md == 0)
+    {
+      /* Empty data signals what was received was a default constructed 
+      skeletcon of the object.*/
+      return PWMIGfielddata{};
+    }
+    else
     {
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
@@ -827,8 +856,8 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
       array_buffer=t[5].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.val[0][0][0],info.ptr,sizeof(double)*size_val);
+      return result;
     }
-    return result;
   }
   ))
   ;

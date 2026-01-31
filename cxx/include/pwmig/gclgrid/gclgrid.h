@@ -443,7 +443,7 @@ public:
  which is used as a test to avoid duplicate free calls on these potentially
  large arrays.
 */
-	GCLgrid(){
+	GCLgrid(): BasicGCLgrid() {
 		n1=0;n2=0;x1=NULL;x2=NULL;x3=NULL;
 	};
 /*!
@@ -724,7 +724,7 @@ public:
 	 Note sets pointers to NULL to make destructor work correctly
 	 when a grid is created by this constructor.
 	*/
-	GCLgrid3d(){
+	GCLgrid3d() : BasicGCLgrid() {
 		n1=0;n2=0;n3=0;
 		x1=NULL;x2=NULL;x3=NULL;
                 fast_lookup=true;
