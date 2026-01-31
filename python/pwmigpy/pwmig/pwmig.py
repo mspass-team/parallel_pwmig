@@ -1197,6 +1197,11 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         # this avoids needing to serialize each of thes on each submit 
         # line below
         t0_scatter=time.time()
+        # This may not be necessary for final version but is needed in 
+        # debugging figure out which of these is failing.   Without this 
+        # scatter returns after the data is at the scheduler but not 
+        # all the workers
+        dask_client.wait_for_workers(num_workers,timeout=300)
         print("DEBUG:  starting to broadcast common data")
         f_parent = dask_client.scatter(parent,broadcast=True)
         print("Broadcasting incident wave time grid")
