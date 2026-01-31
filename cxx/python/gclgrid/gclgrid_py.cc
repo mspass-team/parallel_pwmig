@@ -283,6 +283,7 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       "Set grid point coordinates Geographic point (radians)")
   .def(py::pickle(
     [](const GCLgrid &self) {
+      std::cout << "Entered pickle output serialization for GCLgrid"<<std::endl;
       Metadata md;
       md=self.get_attributes();
       pybind11::object sbuf;
@@ -296,6 +297,7 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
         py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
         py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
         py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
+      std::cout << "Exiting pickle output serialization for GCLgrid with NULL data"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
       }
       else
@@ -303,10 +305,12 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
         py::array_t<double, py::array::f_style> x1arr(size_arrays,&(self.x1[0][0]));
         py::array_t<double, py::array::f_style> x2arr(size_arrays,&(self.x2[0][0]));
         py::array_t<double, py::array::f_style> x3arr(size_arrays,&(self.x3[0][0]));
+      std::cout << "Exiting pickle output serialization for GCLgrid with valid data"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
       }
   },
   [](py::tuple t) {
+    std::cout << "Entered pickle input deserialization for GCLgrid" << std::endl;
     pybind11::object sbuf=t[0];
     Metadata md=mspass::utility::restore_serialized_metadata_py(sbuf);
     /* Assume these are defined or we are hosed anyway*/
@@ -314,21 +318,22 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
     n1=md.get_int("n1");
     n2=md.get_int("n2");
     size_t array_size_from_md(n1*n2);
-    GCLgrid result(n1,n2);
-    /* This template function takes all the parameters from md and
-    sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return 
-    default constructed skeleton*/
-    pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid>(result,md);
+    GCLgrid result;
 
     if(array_size_from_md == 0)
     {
       /* Empty data signals what was received was a default constructed 
       skeletcon of the object.*/
-      return GCLgrid{};
+      result= GCLgrid{};
     }
     else
     {
+      result = GCLgrid(n1,n2);
+      /* This template function takes all the parameters from md and
+      sets the transformation vector and matrix properly.  It does NOT
+      alloc the arrays.  Hence for zero size we can just return 
+      default constructed skeleton*/
+      pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid>(result,md);
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -349,8 +354,9 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       array_buffer=t[4].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.x3[0],info.ptr,sizeof(double)*size_array);
-      return result;
     }
+    std::cout << "Exiting pickle input deserialization for GCLgrid" << std::endl;
+    return result;
   }
   ))
 ;
@@ -434,21 +440,22 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
     n2=md.get_int("n2");
     n3=md.get_int("n3");
     size_t array_size_from_md(n1*n2*n3);
-    GCLgrid3d result(n1,n2,n3);
-    /* This template function takes all the parameters from md and
-    sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return */
-    pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
-    /* We need this additional call for 3d grid - a design flaw in gclgrid*/
-    pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+    GCLgrid3d result;
     if(array_size_from_md == 0)
     {
       /* Empty data signals what was received was a default constructed 
       skeletcon of the object.*/
-      return GCLgrid3d{};
+      result = GCLgrid3d{};
     }
     else
     {
+      result = GCLgrid3d(n1,n2,n3);
+      /* This template function takes all the parameters from md and
+      sets the transformation vector and matrix properly.  It does NOT
+      alloc the arrays.  Hence for zero size we can just return */
+      pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
+      /* We need this additional call for 3d grid - a design flaw in gclgrid*/
+      pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -468,8 +475,8 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
       array_buffer=t[4].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.x3[0][0],info.ptr,sizeof(double)*size_array);
-      return result;
     }
+    return result;
   }
   ))
 ;
@@ -593,24 +600,25 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
     n2=md.get_int("n2");
     n3=md.get_int("n3");
     size_t array_size_from_md(n1*n2*n3);
-    GCLscalarfield3d result(n1,n2,n3);
-    /* This template function takes all the parameters from md and
-    sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return */
-    pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
-    /* We need this additional call for 3d grid - a design flaw in gclgrid*/
-    pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
-    /* If the size is zero the arrays are assumed set NULL.  When that is 
-    the case return a default constructed skeleton*/
+    GCLscalarfield3d result;
     if(array_size_from_md == 0)
     {
         std::cout << "Exiting pickle input for scalar3d with NULL data"<<std::endl;
       /* Empty data signals what was received was a default constructed 
       skeletcon of the object.*/
-      return GCLscalarfield3d{};
+      result = GCLscalarfield3d{};
     }
     else
     {
+      result = GCLscalarfield3d(n1,n2,n3);
+      /* This template function takes all the parameters from md and
+      sets the transformation vector and matrix properly.  It does NOT
+      alloc the arrays.  Hence for zero size we can just return */
+      pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
+      /* We need this additional call for 3d grid - a design flaw in gclgrid*/
+      pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      /* If the size is zero the arrays are assumed set NULL.  When that is 
+      the case return a default constructed skeleton*/
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -635,8 +643,8 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       info = array_buffer.request();
       memcpy(result.val[0][0],info.ptr,sizeof(double)*size_array);
         std::cout << "Exiting pickle input for scalar3d with valid data"<<std::endl;
-      return result;
     } 
+    return result;
   }
   ))
 ;
@@ -706,25 +714,26 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
     n3=md.get_int("n3");
     nv=md.get_int("nv");
     size_t array_size_from_md(n1*n2*n3);
-    GCLvectorfield3d result(n1,n2,n3,nv);
-    /* This template function takes all the parameters from md and
-    sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return */
-    pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
-    /* We need this additional call for 3d grid - a design flaw in gclgrid*/
-    pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
-    /* I think we need to set this one specially - the above may not set it */
-    result.nv=nv;
+    GCLvectorfield3d result;
     /* If the size is zero the arrays are assumed set NULL.  When that is 
     the case return a default constructed skeleton*/
     if(array_size_from_md == 0)
     {
       /* Empty data signals what was received was a default constructed 
       skeletcon of the object.*/
-      return GCLvectorfield3d{};
+      result = GCLvectorfield3d{};
     }
     else
     {
+      result=GCLvectorfield3d(n1,n2,n3,nv);
+      /* This template function takes all the parameters from md and
+      sets the transformation vector and matrix properly.  It does NOT
+      alloc the arrays.  Hence for zero size we can just return */
+      pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
+      /* We need this additional call for 3d grid - a design flaw in gclgrid*/
+      pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      /* I think we need to set this one specially - the above may not set it */
+      result.nv=nv;
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -751,8 +760,8 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
       array_buffer=t[5].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.val[0][0][0],info.ptr,sizeof(double)*size_val);
-      return result;
     }
+    return result;
   }
   ))
 ;
@@ -811,31 +820,32 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
     n3=md.get_int("n3");
     nv=md.get_int("nv");
     size_t array_size_from_md(n1*n2*n3);
-    /* We have to reconstruct elog first as it is used in the specialized
-    constructor called immediately after it is deserialized. */
-    ErrorLogger elog_to_clone;
-    stringstream ss(t[6].cast<std::string>());
-    boost::archive::text_iarchive ar(ss);
-    ar>>elog_to_clone;
-    PWMIGfielddata result(n1,n2,n3,elog_to_clone);
-    /* This template function takes all the parameters from md and
-    sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return */
-    pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
-    /* We need this additional call for 3d grid - a design flaw in gclgrid*/
-    pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
-    /* I think we need to set this one specially - the above may not set it */
-    result.nv=nv;
+    PWMIGfielddata result;
     /* If the size is zero the arrays are assumed set NULL.  When that is 
     the case return a default constructed skeleton*/
     if(array_size_from_md == 0)
     {
       /* Empty data signals what was received was a default constructed 
       skeletcon of the object.*/
-      return PWMIGfielddata{};
+      result = PWMIGfielddata{};
     }
     else
     {
+      /* We have to reconstruct elog first as it is used in the specialized
+      constructor called immediately after it is deserialized. */
+      ErrorLogger elog_to_clone;
+      stringstream ss(t[6].cast<std::string>());
+      boost::archive::text_iarchive ar(ss);
+      ar>>elog_to_clone;
+      result=PWMIGfielddata(n1,n2,n3,elog_to_clone);
+      /* This template function takes all the parameters from md and
+      sets the transformation vector and matrix properly.  It does NOT
+      alloc the arrays.  Hence for zero size we can just return */
+      pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
+      /* We need this additional call for 3d grid - a design flaw in gclgrid*/
+      pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      /* I think we need to set this one specially - the above may not set it */
+      result.nv=nv;
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -862,8 +872,8 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
       array_buffer=t[5].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.val[0][0][0],info.ptr,sizeof(double)*size_val);
-      return result;
     }
+    return result;
   }
   ))
   ;
