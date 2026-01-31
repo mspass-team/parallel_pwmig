@@ -555,6 +555,7 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
   .def(py::self += py::self)
   .def(py::pickle(
     [](const GCLscalarfield3d &self) {
+      std::cout << "Entered pickle output for scalar3d"<<std::endl;
       Metadata md;
       md=self.get_attributes();
       pybind11::object sbuf;
@@ -569,6 +570,7 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
         py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
         py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
         py::array_t<double, py::array::f_style> valarr(size_arrays,NULL);
+        std::cout << "Exiting pickle output for scalar3d with NULL outputs"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
       }
       else
@@ -577,10 +579,12 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
         py::array_t<double, py::array::f_style> x2arr(size_arrays,&(self.x2[0][0][0]));
         py::array_t<double, py::array::f_style> x3arr(size_arrays,&(self.x3[0][0][0]));
         py::array_t<double, py::array::f_style> valarr(size_arrays,&(self.val[0][0][0]));
+        std::cout << "Exiting pickle output for scalar3d with valid data"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
       }
   },
   [](py::tuple t) {
+      std::cout << "Entered pickle input for scalar3d"<<std::endl;
     pybind11::object sbuf=t[0];
     Metadata md=mspass::utility::restore_serialized_metadata_py(sbuf);
     /* Assume these are defined or we are hosed anyway*/
@@ -600,6 +604,7 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
     the case return a default constructed skeleton*/
     if(array_size_from_md == 0)
     {
+        std::cout << "Exiting pickle input for scalar3d with NULL data"<<std::endl;
       /* Empty data signals what was received was a default constructed 
       skeletcon of the object.*/
       return GCLscalarfield3d{};
@@ -629,6 +634,7 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       array_buffer=t[5].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.val[0][0],info.ptr,sizeof(double)*size_array);
+        std::cout << "Exiting pickle input for scalar3d with valid data"<<std::endl;
       return result;
     } 
   }

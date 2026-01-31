@@ -124,16 +124,20 @@ m.def("pwstack_ensemble",&pwstack_ensemble,"Run pwstack algorithm on a Seismogra
      })
      .def(py::pickle(
          [](const SlownessVectorMatrix &self){
+           std::cout << "Entered pickle output function"<<std::endl;
            stringstream ss;
            boost::archive::text_oarchive ar(ss);
            ar << self;
+           std::cout << "Leaving pickle output function"<<std::endl;
            return py::make_tuple(ss.str());
        },
        [](py::tuple t){
+           std::cout << "Entered pickle input function"<<std::endl;
            stringstream ss(t[0].cast<std::string>());
            boost::archive::text_iarchive ar(ss);
            SlownessVectorMatrix svm;
            ar>>svm;
+           std::cout << "Exiting pickle input function"<<std::endl;
            return svm;
        }
      ))
