@@ -334,6 +334,7 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       alloc the arrays.  Hence for zero size we can just return 
       default constructed skeleton*/
       pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid>(result,md);
+      result.set_transformation_matrix();
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -456,6 +457,7 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
       pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
       /* We need this additional call for 3d grid - a design flaw in gclgrid*/
       pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      result.set_transformation_matrix();
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -617,6 +619,7 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
       /* We need this additional call for 3d grid - a design flaw in gclgrid*/
       pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      result.set_transformation_matrix();
       /* If the size is zero the arrays are assumed set NULL.  When that is 
       the case return a default constructed skeleton*/
       size_t size_array = t[1].cast<size_t>();
@@ -732,6 +735,7 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
       pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
       /* We need this additional call for 3d grid - a design flaw in gclgrid*/
       pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      result.set_transformation_matrix();
       /* I think we need to set this one specially - the above may not set it */
       result.nv=nv;
       size_t size_array = t[1].cast<size_t>();
@@ -844,6 +848,7 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
       pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
       /* We need this additional call for 3d grid - a design flaw in gclgrid*/
       pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      result.set_transformation_matrix();
       /* I think we need to set this one specially - the above may not set it */
       result.nv=nv;
       size_t size_array = t[1].cast<size_t>();
