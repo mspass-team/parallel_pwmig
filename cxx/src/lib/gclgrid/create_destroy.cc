@@ -145,7 +145,7 @@ double ****create_4dgrid_contiguous(const int n1, const int n2, const int n3, co
   /* Guard against all null values - possible with default constructors 
    * in this library */
   int count;
-  count=n1*n2*n3*nv;
+  count=n1*n2*n3*n4;
   if(count==0) return NULL; 
 	ptr=(double *)calloc(n1*n2*n3*n4,sizeof(double));
 	if(ptr==NULL)
@@ -240,7 +240,7 @@ BasicGCLgrid::BasicGCLgrid()
 	x2low=0.0;  x2high=0.0;
 	x3low=0.0;  x3high=0.0;
   for(int i=0;i<3;++i)
-    for(int j=0;j<3;++j) this->gtoc_matrix[i][j] = 0.0;
+    for(int j=0;j<3;++j) this->gtoc_rmatrix[i][j] = 0.0;
   for(int i=0;i<3;++i) this->translation_vector[i] = 0.0;
 }
 // This could be defaulted as scalars are copied, I believe, but
