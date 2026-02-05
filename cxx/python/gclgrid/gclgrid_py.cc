@@ -17,6 +17,24 @@
 #include "pwmig/gclgrid/RegionalCoordinates.h"
 #include "pwmig/gclgrid/PWMIGfielddata.h"
 
+/* TODO:   Gemini suggests pickle with pybind11 should use the 
+following pattern with memcpy to avoid problems in a distributed environment
+
+py::array_t<double, py::array::f_style> x1arr(size_arrays);
+py::array_t<double, py::array::f_style> x2arr(size_arrays);
+py::array_t<double, py::array::f_style> x3arr(size_arrays);
+py::array_t<double, py::array::f_style> valarr(size_arrays);
+
+// Copy the data from the C++ 3D array into the NumPy buffer
+// This assumes self.x1[0][0][0] is a contiguous block
+std::memcpy(x1arr.mutable_data(), &(self.x1[0][0][0]), size_arrays * sizeof(double));
+std::memcpy(x2arr.mutable_data(), &(self.x2[0][0][0]), size_arrays * sizeof(double));
+std::memcpy(x3arr.mutable_data(), &(self.x3[0][0][0]), size_arrays * sizeof(double));
+std::memcpy(valarr.mutable_data(), &(self.val[0][0][0]), size_arrays * sizeof(double));
+
+return py::make_tuple(sbuf, size_arrays, x1arr, x2arr, x3arr, valarr);
+*/
+
 /* these are needed to make std::vector containers function propertly.
 This was borrowed from mspass pybind11 cc files */
 PYBIND11_MAKE_OPAQUE(std::vector<double>);
@@ -294,9 +312,9 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       if(size_arrays == 0)
       {
         // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> x2arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> x3arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x1arr;
+        py::array_t<double, py::array::f_style> x2arr;
+        py::array_t<double, py::array::f_style> x3arr;
       std::cout << "Exiting pickle output serialization for GCLgrid with NULL data"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
       }
@@ -419,9 +437,9 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
       if(size_arrays == 0)
       {
         // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> x2arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> x3arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x1arr;
+        py::array_t<double, py::array::f_style> x2arr;
+        py::array_t<double, py::array::f_style> x3arr;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
       }
       else
@@ -575,10 +593,10 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       if(size_arrays == 0)
       {
         // We need this for default constructed grids - a zero length array 
-        py::array_t<double, py::array::f_style> x1arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> x2arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> x3arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> valarr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x1arr;
+        py::array_t<double, py::array::f_style> x2arr;
+        py::array_t<double, py::array::f_style> x3arr;
+        py::array_t<double, py::array::f_style> valarr;
         std::cout << "Exiting pickle output for scalar3d with NULL outputs"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
       }
@@ -692,10 +710,10 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
       if(size_arrays == 0)
       {
         // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> x2arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> x3arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> valarr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x1arr;
+        py::array_t<double, py::array::f_style> x2arr;
+        py::array_t<double, py::array::f_style> x3arr;
+        py::array_t<double, py::array::f_style> valarr;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
       }
       else
@@ -797,10 +815,10 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
       if(size_arrays == 0)
       {
         // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> x2arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> x3arr = py::array_t<double>(0);
-        py::array_t<double, py::array::f_style> valarr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x1arr;
+        py::array_t<double, py::array::f_style> x2arr;
+        py::array_t<double, py::array::f_style> x3arr;
+        py::array_t<double, py::array::f_style> valarr;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr,serialized_elog);
       }
       else
