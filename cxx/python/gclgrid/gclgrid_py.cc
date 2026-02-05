@@ -1,5 +1,10 @@
+#define PY_ARRAY_UNIQUE_SYMBOL MY_MODULE_ARRAY_API
+//#define NO_IMPORT_ARRAY // Only if this is NOT the main file of your module
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <numpy/arrayobject.h>
+
+
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 #include <pybind11/operators.h>
@@ -148,6 +153,10 @@ public:
 
 };
 
+int init_numpy() {
+    import_array(); // Note: inside a function, use import_array(), not _import_array()
+    return 0;
+}
 /* This special function is used in gridstacker to copy arrays of 
 field data to a numpy array.   This allows stacking of migrated events 
 in gridstacker to be done with numpy which has a lot of advantages in 
@@ -180,6 +189,10 @@ py::array_t<double> vectorfield_data_to_numpy(pwmig::gclgrid::GCLvectorfield3d& 
 }
 
 PYBIND11_MODULE(gclgrid, m) {
+// Seems necessary for handling pickle correctly
+if (init_numpy() < 0) {
+    throw py::error_already_set();
+}
 /* This is needed to allow vector inputs and outputs */
 py::bind_vector<std::vector<double>>(m, "DoubleVector");
 
