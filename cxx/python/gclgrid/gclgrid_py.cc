@@ -294,9 +294,9 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       if(size_arrays == 0)
       {
         // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
+        py::array_t<double, py::array::f_style> x1arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x2arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x3arr = py::array_t<double>(0);
       std::cout << "Exiting pickle output serialization for GCLgrid with NULL data"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
       }
@@ -419,9 +419,9 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
       if(size_arrays == 0)
       {
         // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
+        py::array_t<double, py::array::f_style> x1arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x2arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x3arr = py::array_t<double>(0);
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
       }
       else
@@ -574,11 +574,11 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       size_t size_arrays=self.n1*self.n2*self.n3;
       if(size_arrays == 0)
       {
-        // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> valarr(size_arrays,NULL);
+        // We need this for default constructed grids - a zero length array 
+        py::array_t<double, py::array::f_style> x1arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x2arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x3arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> valarr = py::array_t<double>(0);
         std::cout << "Exiting pickle output for scalar3d with NULL outputs"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
       }
@@ -692,10 +692,10 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
       if(size_arrays == 0)
       {
         // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> valarr(size_val,NULL);
+        py::array_t<double, py::array::f_style> x1arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x2arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x3arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> valarr = py::array_t<double>(0);
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
       }
       else
@@ -797,10 +797,10 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
       if(size_arrays == 0)
       {
         // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> valarr(size_val,NULL);
+        py::array_t<double, py::array::f_style> x1arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x2arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> x3arr = py::array_t<double>(0);
+        py::array_t<double, py::array::f_style> valarr = py::array_t<double>(0);
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr,serialized_elog);
       }
       else
