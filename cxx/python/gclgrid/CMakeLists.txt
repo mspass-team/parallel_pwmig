@@ -3,17 +3,18 @@ include_directories(
   ${GSL_INCLUDE_DIRS}
   ${pylib11_INCLUDE_DIRS}
   ${Python_INCLUDE_DIRS}
+  ${Python_NumPy_INCLUDE_DIRS}
   $ENV{MSPASS_HOME}/include
   ${PROJECT_SOURCE_DIR}/include
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_BINARY_DIR}/include)
-
+#target_include_directories (pygclgrid PRIVATE ${Python_NumPy_INCLUDE_DIRS})
 
 pybind11_add_module(pygclgrid gclgrid_py.cc)
 #Python_add_library(pygclgrid gclgrid_py.cc)
-
 target_link_libraries(pygclgrid PRIVATE pwmig 
   $ENV{MSPASS_HOME}/lib/libmspass.a 
+  Python::Module
   ${Boost_LIBRARIES}
   pybind11::headers
   ${Boost_LIBRARIES})
