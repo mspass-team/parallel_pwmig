@@ -1,0 +1,19 @@
+[project]
+name = "pwmigpy"
+description = "Plane wave migration extension of MsPASS"
+authors = [
+    {name = "Gary Pavlis", email = "pavlis@iu.edu"},
+    {name = "Ian Wang", email = "yinzhi.wang.cug@gmail.com"},
+]
+requires-python = ">=3.10"
+dynamic = ["version"]
+[build-system]
+# These dependencies are installed in a temporary environment 
+# just for the duration of the build.
+requires = [
+    "setuptools>=42",
+    "wheel",
+    "pybind11>=2.10",
+    "numpy>=1.20"
+]
+build-backend = "setuptools.build_meta"
