@@ -8,7 +8,7 @@ USER root
 RUN apt-get update && apt-get install -y build-essential cmake && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-pip install numpy
+pip3 install numpy
 
 ADD cxx /parallel_pwmig/cxx
 ADD data /parallel_pwmig/data

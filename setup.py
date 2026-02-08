@@ -47,6 +47,7 @@ class CMakeBuild(build_ext):
         numpy_include = numpy.get_include()
         cmake_args = ['-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=' + extdir,
                       '-DPYTHON_EXECUTABLE=' + sys.executable]
+        cmake_args.append(f"-DPython_NumPy_INCLUDE_DIR={numpy_include}")
 
         cfg = 'Debug' if self.debug else 'Release'
         build_args = ['--config', cfg]
