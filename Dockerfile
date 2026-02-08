@@ -3,21 +3,30 @@ FROM ghcr.io/mspass-team/mspass:latest
 LABEL maintainer="Ian Wang <yinzhi.wang.cug@gmail.com>"
 ENV PFPATH=/test/pf
 
-# Add cxx library
+# 1. Switch to root to install system dependencies
+USER root
+
+# 2. Install compilers and Python headers
+# python3-dev is essential for the Python.h header
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    python3-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 3. Add your source code
 ADD cxx /parallel_pwmig/cxx
 ADD data /parallel_pwmig/data
 ADD setup.py /parallel_pwmig/setup.py
 ADD python /parallel_pwmig/python
-# We need python3-dev for Python.h and python3-numpy for numpy/arrayobject.h
-USER root
-RUN apt-get update && apt-get install -y \
-    python3-dev \
-    python3-numpy \
-    cmake \
-    build-essential \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Now run the install
+# 4. Install NumPy via pip FIRST
+# This ensures setup.py can "import numpy" to find the header paths
+RUN pip3 install numpy
+
+# 5. Build and install your project
+# We use -v (verbose) to see the CMake output if it fails
 RUN MSPASS_HOME=/usr/local pip3 install /parallel_pwmig -v
-RUN pip3 install vtk
 
+# 6. Install remaining runtime dependencies
+RUN pip3 install vtk
