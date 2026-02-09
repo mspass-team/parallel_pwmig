@@ -1,8 +1,7 @@
-#define PY_ARRAY_UNIQUE_SYMBOL MY_MODULE_ARRAY_API
-//#define NO_IMPORT_ARRAY // Only if this is NOT the main file of your module
+//#define PY_ARRAY_UNIQUE_SYMBOL MY_MODULE_ARRAY_API
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
-#include <numpy/arrayobject.h>
+//#include <numpy/arrayobject.h>
 
 
 #include <pybind11/stl.h>
@@ -153,10 +152,6 @@ public:
 
 };
 
-int init_numpy() {
-    import_array(); // Note: inside a function, use import_array(), not _import_array()
-    return 0;
-}
 /* This special function is used in gridstacker to copy arrays of 
 field data to a numpy array.   This allows stacking of migrated events 
 in gridstacker to be done with numpy which has a lot of advantages in 
@@ -191,11 +186,13 @@ py::array_t<double> vectorfield_data_to_numpy(pwmig::gclgrid::GCLvectorfield3d& 
 PYBIND11_MODULE(gclgrid, m) {
 /* This is needed for the pickle sections to work correctly as they 
  * treat the large arrays like numpy arrays */
+/*
 if (_import_array() < 0) {
     PyErr_Print();
     PyErr_SetString(PyExc_ImportError, "numpy.core.multiarray failed to import");
     throw py::error_already_set();
 }
+*/
 /* This is needed to allow vector inputs and outputs */
 py::bind_vector<std::vector<double>>(m, "DoubleVector");
 
@@ -325,7 +322,7 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       /* this incantation was borrowed from mspass pickle section
       of pybind11 code for Seismogram*/
       size_t size_arrays=self.n1*self.n2;
-      if(size_arrays == 0)
+      if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL)
       {
         /* In this case we need to send a zero length array not something like 
          * a default constructed array_t.   Default constructed array_t in this place 
@@ -443,15 +440,19 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
   //.def_readwrite("k0",&GCLgrid3d::k0)
   .def(py::pickle(
     [](const GCLgrid3d &self) {
+      std::cout<<"Entered pickle section"<<std::endl;
       Metadata md;
       md=self.get_attributes();
       pybind11::object sbuf;
+      std::cout<<"Running serialize_metadata"<< std::endl;
       sbuf=serialize_metadata_py(md);
+      std::cout<< "Exited serialize_metadata"<<endl;
       /* this incantation was borrowed from mspass pickle section
       of pybind11 code for Seismogram*/
       size_t size_arrays=self.n1*self.n2*self.n3;
-      if(size_arrays == 0)
+      if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL)
       {
+        std::cout<<"Entered section for output with null arrays"<<std::endl;
         /* In this case we need to send a zero length array not something like 
          * a default constructed array_t.   Default constructed array_t in this place 
          * cause seg faults when this block is used.  The zero length array initialization 
@@ -461,6 +462,7 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
       }
       else
       {
+        std::cout<<"Entered section for output with valid arrays"<<std::endl;
         py::array_t<double, py::array::f_style> x1arr(size_arrays,&(self.x1[0][0][0]));
         py::array_t<double, py::array::f_style> x2arr(size_arrays,&(self.x2[0][0][0]));
         py::array_t<double, py::array::f_style> x3arr(size_arrays,&(self.x3[0][0][0]));
@@ -607,7 +609,7 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       /* this incantation was borrowed from mspass pickle section
       of pybind11 code for Seismogram*/
       size_t size_arrays=self.n1*self.n2*self.n3;
-      if(size_arrays == 0)
+      if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL || self.val==NULL)
       {
         /* In this case we need to send a zero length array not something like 
          * a default constructed array_t.   Default constructed array_t in this place 
@@ -723,7 +725,7 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
       of pybind11 code for Seismogram*/
       size_t size_arrays=self.n1*self.n2*self.n3;
       size_t size_val = size_arrays*self.nv;
-      if(size_arrays == 0)
+      if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL || self.val==NULL)
       {
         /* In this case we need to send a zero length array not something like 
          * a default constructed array_t.   Default constructed array_t in this place 
@@ -828,7 +830,7 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
       boost::archive::text_oarchive ar(ss);
       ar << self.elog;
       string serialized_elog(ss.str());
-      if(size_arrays == 0)
+      if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL || self.val==NULL)
       {
         /* In this case we need to send a zero length array not something like 
          * a default constructed array_t.   Default constructed array_t in this place 
