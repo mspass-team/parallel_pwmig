@@ -189,8 +189,11 @@ py::array_t<double> vectorfield_data_to_numpy(pwmig::gclgrid::GCLvectorfield3d& 
 }
 
 PYBIND11_MODULE(gclgrid, m) {
-// Seems necessary for handling pickle correctly
-if (init_numpy() < 0) {
+/* This is needed for the pickle sections to work correctly as they 
+ * treat the large arrays like numpy arrays */
+if (_import_array() < 0) {
+    PyErr_Print();
+    PyErr_SetString(PyExc_ImportError, "numpy.core.multiarray failed to import");
     throw py::error_already_set();
 }
 /* This is needed to allow vector inputs and outputs */
@@ -324,12 +327,12 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       size_t size_arrays=self.n1*self.n2;
       if(size_arrays == 0)
       {
-        // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr;
-        py::array_t<double, py::array::f_style> x2arr;
-        py::array_t<double, py::array::f_style> x3arr;
-      std::cout << "Exiting pickle output serialization for GCLgrid with NULL data"<<std::endl;
-        return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
+        /* In this case we need to send a zero length array not something like 
+         * a default constructed array_t.   Default constructed array_t in this place 
+         * cause seg faults when this block is used.  The zero length array initialization 
+         * used here avoids that trap.*/
+        auto empty = py::array_t<double>(0);
+        return py::make_tuple(sbuf, size_arrays, empty, empty, empty);
       }
       else
       {
@@ -449,11 +452,12 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
       size_t size_arrays=self.n1*self.n2*self.n3;
       if(size_arrays == 0)
       {
-        // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr;
-        py::array_t<double, py::array::f_style> x2arr;
-        py::array_t<double, py::array::f_style> x3arr;
-        return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
+        /* In this case we need to send a zero length array not something like 
+         * a default constructed array_t.   Default constructed array_t in this place 
+         * cause seg faults when this block is used.  The zero length array initialization 
+         * used here avoids that trap.*/
+        auto empty = py::array_t<double>(0);
+        return py::make_tuple(sbuf, size_arrays, empty, empty, empty);
       }
       else
       {
@@ -605,13 +609,12 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       size_t size_arrays=self.n1*self.n2*self.n3;
       if(size_arrays == 0)
       {
-        // We need this for default constructed grids - a zero length array 
-        py::array_t<double, py::array::f_style> x1arr;
-        py::array_t<double, py::array::f_style> x2arr;
-        py::array_t<double, py::array::f_style> x3arr;
-        py::array_t<double, py::array::f_style> valarr;
-        std::cout << "Exiting pickle output for scalar3d with NULL outputs"<<std::endl;
-        return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
+        /* In this case we need to send a zero length array not something like 
+         * a default constructed array_t.   Default constructed array_t in this place 
+         * cause seg faults when this block is used.  The zero length array initialization 
+         * used here avoids that trap.*/
+        auto empty = py::array_t<double>(0);
+        return py::make_tuple(sbuf, size_arrays, empty, empty, empty, empty);
       }
       else
       {
@@ -722,12 +725,12 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
       size_t size_val = size_arrays*self.nv;
       if(size_arrays == 0)
       {
-        // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr;
-        py::array_t<double, py::array::f_style> x2arr;
-        py::array_t<double, py::array::f_style> x3arr;
-        py::array_t<double, py::array::f_style> valarr;
-        return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
+        /* In this case we need to send a zero length array not something like 
+         * a default constructed array_t.   Default constructed array_t in this place 
+         * cause seg faults when this block is used.  The zero length array initialization 
+         * used here avoids that trap.*/
+        auto empty = py::array_t<double>(0);
+        return py::make_tuple(sbuf, size_arrays, empty, empty, empty, empty);
       }
       else
       {
@@ -827,12 +830,12 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
       string serialized_elog(ss.str());
       if(size_arrays == 0)
       {
-        // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr;
-        py::array_t<double, py::array::f_style> x2arr;
-        py::array_t<double, py::array::f_style> x3arr;
-        py::array_t<double, py::array::f_style> valarr;
-        return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr,serialized_elog);
+        /* In this case we need to send a zero length array not something like 
+         * a default constructed array_t.   Default constructed array_t in this place 
+         * cause seg faults when this block is used.  The zero length array initialization 
+         * used here avoids that trap.*/
+        auto empty = py::array_t<double>(0);
+        return py::make_tuple(sbuf, size_arrays, empty, empty, empty, empty, serialized_elog);
       }
       else
       {

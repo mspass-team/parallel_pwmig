@@ -25,11 +25,15 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 #  message (STATUS "Enabled Coverage")
 #endif ()
 
-# If setup.py passed us a path, tell FindPython to use it
-if(Python_NumPy_INCLUDE_DIR)
-    set(Python_NumPy_INCLUDE_DIRS "${Python_NumPy_INCLUDE_DIR}")
-    message(STATUS "NumPy include directory passed from setup.py: ${Python_NumPy_INCLUDE_DIRS}")
+# This is needed to access numpy includes in pybind11 code
+# needed here for a complex initialization issue with GCLgrid library
+# and the requirement to convert grid data to numpy arrays
+if(Python_NumPy_INCLUDE_DIRS)
+    set(Python_NumPy_HINT "${Python_NumPy_INCLUDE_DIRS}")
+    message(STATUS "Using NumPy Hint: ${Python_NumPy_HINT}")
 endif()
+
+find_package(Python 3 REQUIRED COMPONENTS Interpreter Development.Module NumPy)
 
 if(DEFINED ENV{CONDA_PREFIX})
     include_directories($ENV{CONDA_PREFIX}/include)
