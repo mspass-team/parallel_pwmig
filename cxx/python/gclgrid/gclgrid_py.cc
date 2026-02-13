@@ -16,6 +16,7 @@
 
 #include "mspass/utility/Metadata.h"
 #include "mspass/utility/AntelopePf.h"
+#include "mspass/utility/MsPASSError.h"
 #include "pwmig/gclgrid/gclgrid.h"
 #include "pwmig/gclgrid/gclgrid_subs.h"
 #include "pwmig/gclgrid/RegionalCoordinates.h"
@@ -181,6 +182,57 @@ py::array_t<double> vectorfield_data_to_numpy(pwmig::gclgrid::GCLvectorfield3d& 
         strides,
         &(fld.val[0][0][0][0])
     );
+}
+/* Reciprocal operation of vectorfield_data_to_numpy */
+void load_numpy_data(pwmig::gclgrid::GCLvectorfield3d& fld, 
+   const py::array_t<double>& d2load)
+{
+    const ssize_t* shape_ptr = d2load.shape();
+    /* done this way for clarity.  Alternative is a longstring of or 
+    clauses*/
+    bool sizes_match=true;
+    if(d2load.ndim() != 4)
+    {
+        std::stringstream ss;
+        ss << "load_numpy_data:  ";
+        ss << "numpy array in arg1 does not have the right number of dimensions"<<std::endl;
+        ss << "Array received has "<<d2load.ndim()<<" dimensions; must be 4"<<std::endl;
+        throw mspass::utility::MsPASSError(ss.str());
+    }
+
+    for(auto i=0;i<4;++i)
+    {
+        size_t Ntest = *(shape_ptr + i);
+        switch(i)
+        {
+            case 0:
+                if(fld.n1 != Ntest) sizes_match=false;
+            case 1:
+                if(fld.n2 != Ntest) sizes_match=false;
+            case 2:
+                if(fld.n3 != Ntest) sizes_match=false;
+            case 3:
+                if(fld.nv != Ntest) sizes_match=false;
+        };
+    }
+    if(!sizes_match)
+    {
+        std::stringstream ss;
+        ss << "load_numpy_data:  ";
+        ss << "field object and numpy array dimensions to not match"<<endl;
+        ss << "field data size = (" << fld.n1<<", "<<fld.n2<<", "<<fld.n3
+                 <<", "<<fld.nv<<")"<<endl;
+        ss << "numpy array size = ("<<shape_ptr[0]<<", "<<shape_ptr[1]<<", "
+                 <<shape_ptr[2]<<", "<<shape_ptr[3]<<")"<<endl;
+        throw mspass::utility::MsPASSError(ss.str());
+    }
+    
+    /* this fetches the raw pointer to the numpy array start */
+    const double *dptr = d2load.data();
+    /* use nbytes method instead of computing it from sizes*/
+    double *fldptr = &(fld.val[0][0][0][0]);
+    std::memcpy(fldptr,dptr,d2load.nbytes());
+    
 }
 
 PYBIND11_MODULE(gclgrid, m) {
