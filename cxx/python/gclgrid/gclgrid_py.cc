@@ -22,24 +22,6 @@
 #include "pwmig/gclgrid/RegionalCoordinates.h"
 #include "pwmig/gclgrid/PWMIGfielddata.h"
 
-/* TODO:   Gemini suggests pickle with pybind11 should use the 
-following pattern with memcpy to avoid problems in a distributed environment
-
-py::array_t<double, py::array::f_style> x1arr(size_arrays);
-py::array_t<double, py::array::f_style> x2arr(size_arrays);
-py::array_t<double, py::array::f_style> x3arr(size_arrays);
-py::array_t<double, py::array::f_style> valarr(size_arrays);
-
-// Copy the data from the C++ 3D array into the NumPy buffer
-// This assumes self.x1[0][0][0] is a contiguous block
-std::memcpy(x1arr.mutable_data(), &(self.x1[0][0][0]), size_arrays * sizeof(double));
-std::memcpy(x2arr.mutable_data(), &(self.x2[0][0][0]), size_arrays * sizeof(double));
-std::memcpy(x3arr.mutable_data(), &(self.x3[0][0][0]), size_arrays * sizeof(double));
-std::memcpy(valarr.mutable_data(), &(self.val[0][0][0]), size_arrays * sizeof(double));
-
-return py::make_tuple(sbuf, size_arrays, x1arr, x2arr, x3arr, valarr);
-*/
-
 /* these are needed to make std::vector containers function propertly.
 This was borrowed from mspass pybind11 cc files */
 PYBIND11_MAKE_OPAQUE(std::vector<double>);
@@ -413,7 +395,7 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       "Set grid point coordinates Geographic point (radians)")
   .def(py::pickle(
     [](const GCLgrid &self) {
-      std::cout << "Entered pickle output serialization for GCLgrid"<<std::endl;
+      //std::cout << "Entered pickle output serialization for GCLgrid"<<std::endl;
       Metadata md;
       md=self.get_attributes();
       pybind11::object sbuf;
@@ -435,12 +417,12 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
         py::array_t<double, py::array::f_style> x1arr(size_arrays,&(self.x1[0][0]));
         py::array_t<double, py::array::f_style> x2arr(size_arrays,&(self.x2[0][0]));
         py::array_t<double, py::array::f_style> x3arr(size_arrays,&(self.x3[0][0]));
-      std::cout << "Exiting pickle output serialization for GCLgrid with valid data"<<std::endl;
+      //std::cout << "Exiting pickle output serialization for GCLgrid with valid data"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
       }
   },
   [](py::tuple t) {
-    std::cout << "Entered pickle input deserialization for GCLgrid" << std::endl;
+    //std::cout << "Entered pickle input deserialization for GCLgrid" << std::endl;
     pybind11::object sbuf=t[0];
     Metadata md=mspass::utility::restore_serialized_metadata_py(sbuf);
     /* Assume these are defined or we are hosed anyway*/
@@ -486,7 +468,7 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       info = array_buffer.request();
       memcpy(result.x3[0],info.ptr,sizeof(double)*size_array);
     }
-    std::cout << "Exiting pickle input deserialization for GCLgrid" << std::endl;
+    //std::cout << "Exiting pickle input deserialization for GCLgrid" << std::endl;
     return result;
   }
   ))
@@ -539,19 +521,19 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
   //.def_readwrite("k0",&GCLgrid3d::k0)
   .def(py::pickle(
     [](const GCLgrid3d &self) {
-      std::cout<<"Entered pickle section"<<std::endl;
+      //std::cout<<"Entered pickle section"<<std::endl;
       Metadata md;
       md=self.get_attributes();
       pybind11::object sbuf;
-      std::cout<<"Running serialize_metadata"<< std::endl;
+      //std::cout<<"Running serialize_metadata"<< std::endl;
       sbuf=serialize_metadata_py(md);
-      std::cout<< "Exited serialize_metadata"<<endl;
+      //std::cout<< "Exited serialize_metadata"<<endl;
       /* this incantation was borrowed from mspass pickle section
       of pybind11 code for Seismogram*/
       size_t size_arrays=self.n1*self.n2*self.n3;
       if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL)
       {
-        std::cout<<"Entered section for output with null arrays"<<std::endl;
+        //std::cout<<"Entered section for output with null arrays"<<std::endl;
         /* In this case we need to send a zero length array not something like 
          * a default constructed array_t.   Default constructed array_t in this place 
          * cause seg faults when this block is used.  The zero length array initialization 
@@ -561,7 +543,7 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
       }
       else
       {
-        std::cout<<"Entered section for output with valid arrays"<<std::endl;
+        //std::cout<<"Entered section for output with valid arrays"<<std::endl;
         py::array_t<double, py::array::f_style> x1arr(size_arrays,&(self.x1[0][0][0]));
         py::array_t<double, py::array::f_style> x2arr(size_arrays,&(self.x2[0][0][0]));
         py::array_t<double, py::array::f_style> x3arr(size_arrays,&(self.x3[0][0][0]));
@@ -700,7 +682,7 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
   .def(py::self += py::self)
   .def(py::pickle(
     [](const GCLscalarfield3d &self) {
-      std::cout << "Entered pickle output for scalar3d"<<std::endl;
+      //std::cout << "Entered pickle output for scalar3d"<<std::endl;
       Metadata md;
       md=self.get_attributes();
       pybind11::object sbuf;
@@ -723,12 +705,12 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
         py::array_t<double, py::array::f_style> x2arr(size_arrays,&(self.x2[0][0][0]));
         py::array_t<double, py::array::f_style> x3arr(size_arrays,&(self.x3[0][0][0]));
         py::array_t<double, py::array::f_style> valarr(size_arrays,&(self.val[0][0][0]));
-        std::cout << "Exiting pickle output for scalar3d with valid data"<<std::endl;
+        //std::cout << "Exiting pickle output for scalar3d with valid data"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
       }
   },
   [](py::tuple t) {
-      std::cout << "Entered pickle input for scalar3d"<<std::endl;
+      //std::cout << "Entered pickle input for scalar3d"<<std::endl;
     pybind11::object sbuf=t[0];
     Metadata md=mspass::utility::restore_serialized_metadata_py(sbuf);
     /* Assume these are defined or we are hosed anyway*/
@@ -740,7 +722,7 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
     GCLscalarfield3d result;
     if(array_size_from_md == 0)
     {
-        std::cout << "Exiting pickle input for scalar3d with NULL data"<<std::endl;
+        //std::cout << "Exiting pickle input for scalar3d with NULL data"<<std::endl;
       /* Empty data signals what was received was a default constructed 
       skeletcon of the object.*/
       result = GCLscalarfield3d{};
@@ -780,7 +762,7 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       array_buffer=t[5].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.val[0][0],info.ptr,sizeof(double)*size_array);
-        std::cout << "Exiting pickle input for scalar3d with valid data"<<std::endl;
+        //std::cout << "Exiting pickle input for scalar3d with valid data"<<std::endl;
     } 
     return result;
   }
