@@ -140,13 +140,13 @@ field data to a numpy array.   This allows stacking of migrated events
 in gridstacker to be done with numpy which has a lot of advantages in 
 a python environment.   Thank you Gemini for this suggestion.
 
-Warning Warning Warning - this function returns a reference to the 
-memory held by the val 4d array inside object fld.  Use with caution in 
-python as if the return is manipulated the val will be too.  
+The function returns a reference but not that the binding code 
+makes it return a copy to python using the py::return_value_policy::copy
+option.
 */
-py::array_t<double> vectorfield_data_to_numpy(pwmig::gclgrid::GCLvectorfield3d& fld)
+py::array_t<double> extract_data_array(pwmig::gclgrid::GCLvectorfield3d& fld)
 {
-    /* These type conversion silence pedantic type mismatche warnings */
+    /* These type conversion silence pedantic type mismatch warnings */
     size_t n1,n2,n3,nv;
     n1 = static_cast<size_t>(fld.n1);
     n2 = static_cast<size_t>(fld.n2);
@@ -165,7 +165,27 @@ py::array_t<double> vectorfield_data_to_numpy(pwmig::gclgrid::GCLvectorfield3d& 
         &(fld.val[0][0][0][0])
     );
 }
-/* Reciprocal operation of vectorfield_data_to_numpy */
+py::array_t<double> extract_data_array(pwmig::gclgrid::GCLscalarfield3d& fld)
+{
+    /* These type conversion silence pedantic type mismatch warnings */
+    size_t n1,n2,n3;
+    n1 = static_cast<size_t>(fld.n1);
+    n2 = static_cast<size_t>(fld.n2);
+    n3 = static_cast<size_t>(fld.n3);
+    std::vector<size_t> shape = {n1,n2,n3};
+    std::vector<size_t> strides = {
+        n2*n3*sizeof(double),
+        n3*sizeof(double),
+        sizeof(double)
+    };
+    return py::array_t<double> (
+        shape,
+        strides,
+        &(fld.val[0][0][0])
+    );
+}
+/* Reciprocal operation of extract_data_array.  Loads numpy array 
+ * data in val array*/
 void load_numpy_data(pwmig::gclgrid::GCLvectorfield3d& fld, 
    const py::array_t<double>& d2load)
 {
@@ -277,8 +297,18 @@ if (_import_array() < 0) {
 /* This is needed to allow vector inputs and outputs */
 py::bind_vector<std::vector<double>>(m, "DoubleVector");
 
-m.def("vectorfield_data_to_numpy",&vectorfield_data_to_numpy,
-  "Return reference to vector field data as a 4d numpy array - warning not a copy but a refernce");
+m.def("extract_data_array",py::overload_cast<GCLvectorfield3d&>(&extract_data_array),
+  "Return reference to vector field data as a 4d numpy array",
+  py::return_value_policy::copy);
+m.def("extract_data_array",py::overload_cast<GCLscalarfield3d&>(&extract_data_array),
+  "Return reference to scalar field data as a 3d numpy array",
+  py::return_value_policy::copy);
+m.def("load_numpy_data",py::overload_cast<GCLvectorfield3d&, const py::array_t<double>&>(&load_numpy_data),
+  "Load data in congruent 4D numpy array into object's data array",
+  py::return_value_policy::copy);
+m.def("load_numpy_data",py::overload_cast<GCLscalarfield3d&, const py::array_t<double>&>(&load_numpy_data),
+  "Load data in congruent 3D numpy array into object's data array",
+  py::return_value_policy::copy);
 
 py::class_<pwmig::gclgrid::Geographic_point>(m,"Geographic_point","Point on Earth defined in regional cartesian system")
   .def(py::init<>())
