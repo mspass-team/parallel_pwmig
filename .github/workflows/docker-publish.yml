@@ -70,8 +70,9 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action
+      # TEMP: PR also runs arm64 for testing; revert to != 'schedule' only before merge
       - name: Build and push Docker image (amd64 only)
-        if: ${{ github.event_name != 'schedule' }}
+        if: ${{ github.event_name != 'schedule' && github.event_name != 'pull_request' }}
         uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
         with:
           context: .
@@ -83,7 +84,7 @@ jobs:
           cache-to: type=local,dest=/tmp/.buildx-cache-new
 
       - name: Build and push Docker image (amd64 and arm64)
-        if: ${{ github.event_name == 'schedule' }}
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'pull_request' }}  # TEMP: remove || pull_request after test
         uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
         with:
           context: .
@@ -96,7 +97,7 @@ jobs:
 
       # Build and push dev image
       - name: Build and push dev image (amd64 only)
-        if: ${{ github.event_name != 'schedule' }}
+        if: ${{ github.event_name != 'schedule' && github.event_name != 'pull_request' }}
         uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
         with:
           context: .
@@ -110,7 +111,7 @@ jobs:
           cache-to: type=local,dest=/tmp/.buildx-cache-new2
 
       - name: Build and push dev image (amd64 and arm64)
-        if: ${{ github.event_name == 'schedule' }}
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'pull_request' }}
         uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
         with:
           context: .
