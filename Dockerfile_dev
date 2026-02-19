@@ -1,4 +1,5 @@
-FROM ghcr.io/mspass-team/mspass:latest
+ARG MSPASS_BASE=ghcr.io/mspass-team/mspass:latest
+FROM ${MSPASS_BASE}
 
 LABEL maintainer="Ian Wang <yinzhi.wang.cug@gmail.com>"
 
