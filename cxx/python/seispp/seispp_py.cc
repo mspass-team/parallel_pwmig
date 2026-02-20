@@ -91,6 +91,8 @@ py::class_<RadialGrid>(m,"RadialGrid","Defines global radial grid with great cir
   .def("cell",&RadialGrid::cell,"Return a Metadata container with attributes defining a cell specified by index positions")
   .def_readonly("naz",&RadialGrid::naz,"Number of points in azimuth axis")
   .def_readonly("ndelta",&RadialGrid::ndelta,"Number of points in axis")
+  .def_readonly("azimuth",&RadialGrid::azimuth,"Return array of azimuth (radians) of grid cells")
+  .def_readonly("delta",&RadialGrid::delta,"Return array of distances (radians) of grid cells")
   ;
 py::class_<SectorTest>(m,"SectorTest","Used for radial grid subsetting - used only to pass to C++ code")
   .def(py::init<RadialGrid&,const int, const int>())

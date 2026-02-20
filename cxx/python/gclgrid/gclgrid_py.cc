@@ -1,5 +1,9 @@
+//#define PY_ARRAY_UNIQUE_SYMBOL MY_MODULE_ARRAY_API
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+//#include <numpy/arrayobject.h>
+
+
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 #include <pybind11/operators.h>
@@ -12,6 +16,7 @@
 
 #include "mspass/utility/Metadata.h"
 #include "mspass/utility/AntelopePf.h"
+#include "mspass/utility/MsPASSError.h"
 #include "pwmig/gclgrid/gclgrid.h"
 #include "pwmig/gclgrid/gclgrid_subs.h"
 #include "pwmig/gclgrid/RegionalCoordinates.h"
@@ -130,9 +135,180 @@ public:
 
 };
 
+/* This special function is used in gridstacker to copy arrays of 
+field data to a numpy array.   This allows stacking of migrated events 
+in gridstacker to be done with numpy which has a lot of advantages in 
+a python environment.   Thank you Gemini for this suggestion.
+
+The function returns a reference but not that the binding code 
+makes it return a copy to python using the py::return_value_policy::copy
+option.
+*/
+py::array_t<double> extract_data_array(pwmig::gclgrid::GCLvectorfield3d& fld)
+{
+    /* These type conversion silence pedantic type mismatch warnings */
+    size_t n1,n2,n3,nv;
+    n1 = static_cast<size_t>(fld.n1);
+    n2 = static_cast<size_t>(fld.n2);
+    n3 = static_cast<size_t>(fld.n3);
+    nv = static_cast<size_t>(fld.nv);
+    std::vector<size_t> shape = {n1,n2,n3,nv};
+    std::vector<size_t> strides = {
+        n2*n3*nv*sizeof(double),
+        n3*nv*sizeof(double),
+        nv*sizeof(double),
+        sizeof(double)
+    };
+    return py::array_t<double> (
+        shape,
+        strides,
+        &(fld.val[0][0][0][0])
+    );
+}
+py::array_t<double> extract_data_array(pwmig::gclgrid::GCLscalarfield3d& fld)
+{
+    /* These type conversion silence pedantic type mismatch warnings */
+    size_t n1,n2,n3;
+    n1 = static_cast<size_t>(fld.n1);
+    n2 = static_cast<size_t>(fld.n2);
+    n3 = static_cast<size_t>(fld.n3);
+    std::vector<size_t> shape = {n1,n2,n3};
+    std::vector<size_t> strides = {
+        n2*n3*sizeof(double),
+        n3*sizeof(double),
+        sizeof(double)
+    };
+    return py::array_t<double> (
+        shape,
+        strides,
+        &(fld.val[0][0][0])
+    );
+}
+/* Reciprocal operation of extract_data_array.  Loads numpy array 
+ * data in val array*/
+void load_numpy_data(pwmig::gclgrid::GCLvectorfield3d& fld, 
+   const py::array_t<double>& d2load)
+{
+    const ssize_t* shape_ptr = d2load.shape();
+    /* done this way for clarity.  Alternative is a longstring of or 
+    clauses*/
+    bool sizes_match=true;
+    if(d2load.ndim() != 4)
+    {
+        std::stringstream ss;
+        ss << "load_numpy_data:  ";
+        ss << "numpy array in arg1 does not have the right number of dimensions"<<std::endl;
+        ss << "Array received has "<<d2load.ndim()<<" dimensions; must be 4"<<std::endl;
+        throw mspass::utility::MsPASSError(ss.str());
+    }
+
+    for(auto i=0;i<4;++i)
+    {
+        size_t Ntest = *(shape_ptr + i);
+        switch(i)
+        {
+            case 0:
+                if(fld.n1 != Ntest) sizes_match=false;
+            case 1:
+                if(fld.n2 != Ntest) sizes_match=false;
+            case 2:
+                if(fld.n3 != Ntest) sizes_match=false;
+            case 3:
+                if(fld.nv != Ntest) sizes_match=false;
+        };
+    }
+    if(!sizes_match)
+    {
+        std::stringstream ss;
+        ss << "load_numpy_data:  ";
+        ss << "field object and numpy array dimensions do not match"<<endl;
+        ss << "field data size = (" << fld.n1<<", "<<fld.n2<<", "<<fld.n3
+                 <<", "<<fld.nv<<")"<<endl;
+        ss << "numpy array size = ("<<shape_ptr[0]<<", "<<shape_ptr[1]<<", "
+                 <<shape_ptr[2]<<", "<<shape_ptr[3]<<")"<<endl;
+        throw mspass::utility::MsPASSError(ss.str());
+    }
+    
+    /* this fetches the raw pointer to the numpy array start */
+    const double *dptr = d2load.data();
+    /* use nbytes method instead of computing it from sizes*/
+    double *fldptr = &(fld.val[0][0][0][0]);
+    std::memcpy(fldptr,dptr,d2load.nbytes());
+}
+/* Overloaded function for scalar data*/
+void load_numpy_data(pwmig::gclgrid::GCLscalarfield3d& fld, 
+   const py::array_t<double>& d2load)
+{
+    const ssize_t* shape_ptr = d2load.shape();
+    /* done this way for clarity.  Alternative is a longstring of or 
+    clauses*/
+    bool sizes_match=true;
+    if(d2load.ndim() != 3)
+    {
+        std::stringstream ss;
+        ss << "load_numpy_data:  ";
+        ss << "numpy array in arg1 does not have the right number of dimensions"<<std::endl;
+        ss << "Array received has "<<d2load.ndim()<<" dimensions; must be 3"<<std::endl;
+        throw mspass::utility::MsPASSError(ss.str());
+    }
+
+    for(auto i=0;i<3;++i)
+    {
+        size_t Ntest = *(shape_ptr + i);
+        switch(i)
+        {
+            case 0:
+                if(fld.n1 != Ntest) sizes_match=false;
+            case 1:
+                if(fld.n2 != Ntest) sizes_match=false;
+            case 2:
+                if(fld.n3 != Ntest) sizes_match=false;
+        };
+    }
+    if(!sizes_match)
+    {
+        std::stringstream ss;
+        ss << "load_numpy_data:  ";
+        ss << "field object and numpy array dimensions do not match"<<endl;
+        ss << "field data size = (" << fld.n1<<", "<<fld.n2<<", "<<fld.n3
+                 <<")"<<endl;
+        ss << "numpy array size = ("<<shape_ptr[0]<<", "<<shape_ptr[1]<<", "
+                 <<shape_ptr[2]<<")"<<endl;
+        throw mspass::utility::MsPASSError(ss.str());
+    }
+    
+    /* this fetches the raw pointer to the numpy array start */
+    const double *dptr = d2load.data();
+    /* use nbytes method instead of computing it from sizes*/
+    double *fldptr = &(fld.val[0][0][0]);
+    std::memcpy(fldptr,dptr,d2load.nbytes());
+}
+
 PYBIND11_MODULE(gclgrid, m) {
+/* This is needed for the pickle sections to work correctly as they 
+ * treat the large arrays like numpy arrays */
+/*
+if (_import_array() < 0) {
+    PyErr_Print();
+    PyErr_SetString(PyExc_ImportError, "numpy.core.multiarray failed to import");
+    throw py::error_already_set();
+}
+*/
 /* This is needed to allow vector inputs and outputs */
 py::bind_vector<std::vector<double>>(m, "DoubleVector");
+
+m.def("extract_data_array",py::overload_cast<GCLvectorfield3d&>(&extract_data_array),
+  "Return reference to vector field data as a 4d numpy array",
+  py::return_value_policy::copy);
+m.def("extract_data_array",py::overload_cast<GCLscalarfield3d&>(&extract_data_array),
+  "Return reference to scalar field data as a 3d numpy array",
+  py::return_value_policy::copy);
+m.def("load_numpy_data",py::overload_cast<GCLvectorfield3d&, const py::array_t<double>&>(&load_numpy_data),
+  "Load data in congruent 4D numpy array into object's data array",
+  py::return_value_policy::copy);
+m.def("load_numpy_data",py::overload_cast<GCLscalarfield3d&, const py::array_t<double>&>(&load_numpy_data),
+  "Load data in congruent 3D numpy array into object's data array",
+  py::return_value_policy::copy);
 
 py::class_<pwmig::gclgrid::Geographic_point>(m,"Geographic_point","Point on Earth defined in regional cartesian system")
   .def(py::init<>())
@@ -249,6 +425,7 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       "Set grid point coordinates Geographic point (radians)")
   .def(py::pickle(
     [](const GCLgrid &self) {
+      //std::cout << "Entered pickle output serialization for GCLgrid"<<std::endl;
       Metadata md;
       md=self.get_attributes();
       pybind11::object sbuf;
@@ -256,23 +433,26 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       /* this incantation was borrowed from mspass pickle section
       of pybind11 code for Seismogram*/
       size_t size_arrays=self.n1*self.n2;
-      if(size_arrays == 0)
+      if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL)
       {
-        // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
-        return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
+        /* In this case we need to send a zero length array not something like 
+         * a default constructed array_t.   Default constructed array_t in this place 
+         * cause seg faults when this block is used.  The zero length array initialization 
+         * used here avoids that trap.*/
+        auto empty = py::array_t<double>(0);
+        return py::make_tuple(sbuf, size_arrays, empty, empty, empty);
       }
       else
       {
         py::array_t<double, py::array::f_style> x1arr(size_arrays,&(self.x1[0][0]));
         py::array_t<double, py::array::f_style> x2arr(size_arrays,&(self.x2[0][0]));
         py::array_t<double, py::array::f_style> x3arr(size_arrays,&(self.x3[0][0]));
+      //std::cout << "Exiting pickle output serialization for GCLgrid with valid data"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
       }
   },
   [](py::tuple t) {
+    //std::cout << "Entered pickle input deserialization for GCLgrid" << std::endl;
     pybind11::object sbuf=t[0];
     Metadata md=mspass::utility::restore_serialized_metadata_py(sbuf);
     /* Assume these are defined or we are hosed anyway*/
@@ -280,14 +460,23 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
     n1=md.get_int("n1");
     n2=md.get_int("n2");
     size_t array_size_from_md(n1*n2);
-    GCLgrid result(n1,n2);
-    /* This template function takes all the parameters from md and
-    sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return */
-    pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid>(result,md);
+    GCLgrid result;
 
-    if(array_size_from_md > 0)
+    if(array_size_from_md == 0)
     {
+      /* Empty data signals what was received was a default constructed 
+      skeletcon of the object.*/
+      result= GCLgrid{};
+    }
+    else
+    {
+      result = GCLgrid(n1,n2);
+      /* This template function takes all the parameters from md and
+      sets the transformation vector and matrix properly.  It does NOT
+      alloc the arrays.  Hence for zero size we can just return 
+      default constructed skeleton*/
+      pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid>(result,md);
+      result.set_transformation_matrix();
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -309,6 +498,7 @@ py::class_<GCLgrid,BasicGCLgrid>(m,"GCLgrid",py::buffer_protocol(),
       info = array_buffer.request();
       memcpy(result.x3[0],info.ptr,sizeof(double)*size_array);
     }
+    //std::cout << "Exiting pickle input deserialization for GCLgrid" << std::endl;
     return result;
   }
   ))
@@ -361,23 +551,29 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
   //.def_readwrite("k0",&GCLgrid3d::k0)
   .def(py::pickle(
     [](const GCLgrid3d &self) {
+      //std::cout<<"Entered pickle section"<<std::endl;
       Metadata md;
       md=self.get_attributes();
       pybind11::object sbuf;
+      //std::cout<<"Running serialize_metadata"<< std::endl;
       sbuf=serialize_metadata_py(md);
+      //std::cout<< "Exited serialize_metadata"<<endl;
       /* this incantation was borrowed from mspass pickle section
       of pybind11 code for Seismogram*/
       size_t size_arrays=self.n1*self.n2*self.n3;
-      if(size_arrays == 0)
+      if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL)
       {
-        // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
-        return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr);
+        //std::cout<<"Entered section for output with null arrays"<<std::endl;
+        /* In this case we need to send a zero length array not something like 
+         * a default constructed array_t.   Default constructed array_t in this place 
+         * cause seg faults when this block is used.  The zero length array initialization 
+         * used here avoids that trap.*/
+        auto empty = py::array_t<double>(0);
+        return py::make_tuple(sbuf, size_arrays, empty, empty, empty);
       }
       else
       {
+        //std::cout<<"Entered section for output with valid arrays"<<std::endl;
         py::array_t<double, py::array::f_style> x1arr(size_arrays,&(self.x1[0][0][0]));
         py::array_t<double, py::array::f_style> x2arr(size_arrays,&(self.x2[0][0][0]));
         py::array_t<double, py::array::f_style> x3arr(size_arrays,&(self.x3[0][0][0]));
@@ -393,19 +589,23 @@ py::class_<GCLgrid3d,BasicGCLgrid>(m,"GCLgrid3d",py::buffer_protocol(),
     n2=md.get_int("n2");
     n3=md.get_int("n3");
     size_t array_size_from_md(n1*n2*n3);
-    GCLgrid3d result(n1,n2,n3);
-    /* This template function takes all the parameters from md and
-    sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return */
-    pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
-    /* We need this additional call for 3d grid - a design flaw in gclgrid*/
-    pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
-    /* Default constructed result has null arrays so we do nothing with
-    them other than load the metadata. When the sizes are nonzero the
-    constructor is assumed to have allocated the space for the arrays
-    we copy in below*/
-    if(array_size_from_md > 0)
+    GCLgrid3d result;
+    if(array_size_from_md == 0)
     {
+      /* Empty data signals what was received was a default constructed 
+      skeletcon of the object.*/
+      result = GCLgrid3d{};
+    }
+    else
+    {
+      result = GCLgrid3d(n1,n2,n3);
+      /* This template function takes all the parameters from md and
+      sets the transformation vector and matrix properly.  It does NOT
+      alloc the arrays.  Hence for zero size we can just return */
+      pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
+      /* We need this additional call for 3d grid - a design flaw in gclgrid*/
+      pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      result.set_transformation_matrix();
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -512,6 +712,7 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
   .def(py::self += py::self)
   .def(py::pickle(
     [](const GCLscalarfield3d &self) {
+      //std::cout << "Entered pickle output for scalar3d"<<std::endl;
       Metadata md;
       md=self.get_attributes();
       pybind11::object sbuf;
@@ -519,14 +720,14 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       /* this incantation was borrowed from mspass pickle section
       of pybind11 code for Seismogram*/
       size_t size_arrays=self.n1*self.n2*self.n3;
-      if(size_arrays == 0)
+      if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL || self.val==NULL)
       {
-        // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> valarr(size_arrays,NULL);
-        return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
+        /* In this case we need to send a zero length array not something like 
+         * a default constructed array_t.   Default constructed array_t in this place 
+         * cause seg faults when this block is used.  The zero length array initialization 
+         * used here avoids that trap.*/
+        auto empty = py::array_t<double>(0);
+        return py::make_tuple(sbuf, size_arrays, empty, empty, empty, empty);
       }
       else
       {
@@ -534,10 +735,12 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
         py::array_t<double, py::array::f_style> x2arr(size_arrays,&(self.x2[0][0][0]));
         py::array_t<double, py::array::f_style> x3arr(size_arrays,&(self.x3[0][0][0]));
         py::array_t<double, py::array::f_style> valarr(size_arrays,&(self.val[0][0][0]));
+        //std::cout << "Exiting pickle output for scalar3d with valid data"<<std::endl;
         return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
       }
   },
   [](py::tuple t) {
+      //std::cout << "Entered pickle input for scalar3d"<<std::endl;
     pybind11::object sbuf=t[0];
     Metadata md=mspass::utility::restore_serialized_metadata_py(sbuf);
     /* Assume these are defined or we are hosed anyway*/
@@ -546,18 +749,26 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
     n2=md.get_int("n2");
     n3=md.get_int("n3");
     size_t array_size_from_md(n1*n2*n3);
-    GCLscalarfield3d result(n1,n2,n3);
-    /* This template function takes all the parameters from md and
-    sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return */
-    pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
-    /* We need this additional call for 3d grid - a design flaw in gclgrid*/
-    pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
-    /* If the size is zero the arrays are assumed set NULL - that would
-    be behavior for a default constructed object.  Otherwise the constructor
-    we used above will create the data arrays we can push the array data to.*/
-    if(array_size_from_md>0)
+    GCLscalarfield3d result;
+    if(array_size_from_md == 0)
     {
+        //std::cout << "Exiting pickle input for scalar3d with NULL data"<<std::endl;
+      /* Empty data signals what was received was a default constructed 
+      skeletcon of the object.*/
+      result = GCLscalarfield3d{};
+    }
+    else
+    {
+      result = GCLscalarfield3d(n1,n2,n3);
+      /* This template function takes all the parameters from md and
+      sets the transformation vector and matrix properly.  It does NOT
+      alloc the arrays.  Hence for zero size we can just return */
+      pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
+      /* We need this additional call for 3d grid - a design flaw in gclgrid*/
+      pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      result.set_transformation_matrix();
+      /* If the size is zero the arrays are assumed set NULL.  When that is 
+      the case return a default constructed skeleton*/
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -581,7 +792,8 @@ py::class_<GCLscalarfield3d,GCLgrid3d>(m,"GCLscalarfield3d","Three-dimensional g
       array_buffer=t[5].cast<py::array_t<double, py::array::f_style>>();
       info = array_buffer.request();
       memcpy(result.val[0][0],info.ptr,sizeof(double)*size_array);
-    }
+        //std::cout << "Exiting pickle input for scalar3d with valid data"<<std::endl;
+    } 
     return result;
   }
   ))
@@ -624,14 +836,14 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
       of pybind11 code for Seismogram*/
       size_t size_arrays=self.n1*self.n2*self.n3;
       size_t size_val = size_arrays*self.nv;
-      if(size_arrays == 0)
+      if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL || self.val==NULL)
       {
-        // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> valarr(size_val,NULL);
-        return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr);
+        /* In this case we need to send a zero length array not something like 
+         * a default constructed array_t.   Default constructed array_t in this place 
+         * cause seg faults when this block is used.  The zero length array initialization 
+         * used here avoids that trap.*/
+        auto empty = py::array_t<double>(0);
+        return py::make_tuple(sbuf, size_arrays, empty, empty, empty, empty);
       }
       else
       {
@@ -652,20 +864,27 @@ py::class_<GCLvectorfield3d,GCLgrid3d>(m,"GCLvectorfield3d","Three-dimensional g
     n3=md.get_int("n3");
     nv=md.get_int("nv");
     size_t array_size_from_md(n1*n2*n3);
-    GCLvectorfield3d result(n1,n2,n3,nv);
-    /* This template function takes all the parameters from md and
-    sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return */
-    pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
-    /* We need this additional call for 3d grid - a design flaw in gclgrid*/
-    pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
-    /* I think we need to set this one specially - the above may not set it */
-    result.nv=nv;
-    /* If the size is zero the arrays are assumed set NULL - that would
-    be behavior for a default constructed object.  Otherwise the constructor
-    we used above will create the data arrays we can push the array data to.*/
-    if(array_size_from_md>0)
+    GCLvectorfield3d result;
+    /* If the size is zero the arrays are assumed set NULL.  When that is 
+    the case return a default constructed skeleton*/
+    if(array_size_from_md == 0)
     {
+      /* Empty data signals what was received was a default constructed 
+      skeletcon of the object.*/
+      result = GCLvectorfield3d{};
+    }
+    else
+    {
+      result=GCLvectorfield3d(n1,n2,n3,nv);
+      /* This template function takes all the parameters from md and
+      sets the transformation vector and matrix properly.  It does NOT
+      alloc the arrays.  Hence for zero size we can just return */
+      pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
+      /* We need this additional call for 3d grid - a design flaw in gclgrid*/
+      pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      result.set_transformation_matrix();
+      /* I think we need to set this one specially - the above may not set it */
+      result.nv=nv;
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",
@@ -722,14 +941,14 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
       boost::archive::text_oarchive ar(ss);
       ar << self.elog;
       string serialized_elog(ss.str());
-      if(size_arrays == 0)
+      if(size_arrays == 0 || self.x1==NULL || self.x2==NULL || self.x3==NULL || self.val==NULL)
       {
-        // We need this for default constructed grids
-        py::array_t<double, py::array::f_style> x1arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x2arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> x3arr(size_arrays,NULL);
-        py::array_t<double, py::array::f_style> valarr(size_val,NULL);
-        return py::make_tuple(sbuf,size_arrays,x1arr,x2arr,x3arr,valarr,serialized_elog);
+        /* In this case we need to send a zero length array not something like 
+         * a default constructed array_t.   Default constructed array_t in this place 
+         * cause seg faults when this block is used.  The zero length array initialization 
+         * used here avoids that trap.*/
+        auto empty = py::array_t<double>(0);
+        return py::make_tuple(sbuf, size_arrays, empty, empty, empty, empty, serialized_elog);
       }
       else
       {
@@ -752,26 +971,33 @@ py::class_<PWMIGfielddata,GCLvectorfield3d>(m,"PWMIGfielddata",
     n3=md.get_int("n3");
     nv=md.get_int("nv");
     size_t array_size_from_md(n1*n2*n3);
-    /* We have to reconstruct elog first as it is used in the specialized
-    constructor called immediately after it is deserialized. */
-    ErrorLogger elog_to_clone;
-    stringstream ss(t[6].cast<std::string>());
-    boost::archive::text_iarchive ar(ss);
-    ar>>elog_to_clone;
-    PWMIGfielddata result(n1,n2,n3,elog_to_clone);
-    /* This template function takes all the parameters from md and
-    sets the transformation vector and matrix properly.  It does NOT
-    alloc the arrays.  Hence for zero size we can just return */
-    pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
-    /* We need this additional call for 3d grid - a design flaw in gclgrid*/
-    pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
-    /* I think we need to set this one specially - the above may not set it */
-    result.nv=nv;
-    /* If the size is zero the arrays are assumed set NULL - that would
-    be behavior for a default constructed object.  Otherwise the constructor
-    we used above will create the data arrays we can push the array data to.*/
-    if(array_size_from_md>0)
+    PWMIGfielddata result;
+    /* If the size is zero the arrays are assumed set NULL.  When that is 
+    the case return a default constructed skeleton*/
+    if(array_size_from_md == 0)
     {
+      /* Empty data signals what was received was a default constructed 
+      skeletcon of the object.*/
+      result = PWMIGfielddata{};
+    }
+    else
+    {
+      /* We have to reconstruct elog first as it is used in the specialized
+      constructor called immediately after it is deserialized. */
+      ErrorLogger elog_to_clone;
+      stringstream ss(t[6].cast<std::string>());
+      boost::archive::text_iarchive ar(ss);
+      ar>>elog_to_clone;
+      result=PWMIGfielddata(n1,n2,n3,elog_to_clone);
+      /* This template function takes all the parameters from md and
+      sets the transformation vector and matrix properly.  It does NOT
+      alloc the arrays.  Hence for zero size we can just return */
+      pwmig::gclgrid::pfload_common_GCL_attributes<GCLgrid3d>(result,md);
+      /* We need this additional call for 3d grid - a design flaw in gclgrid*/
+      pwmig::gclgrid::pfload_3dgrid_attributes<GCLgrid3d>(result,md);
+      result.set_transformation_matrix();
+      /* I think we need to set this one specially - the above may not set it */
+      result.nv=nv;
       size_t size_array = t[1].cast<size_t>();
       if(size_array != array_size_from_md)
         throw mspass::utility::MsPASSError("pickle serialization:  metadata grid size does not match buffer size",

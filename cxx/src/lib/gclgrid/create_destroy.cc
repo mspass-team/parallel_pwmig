@@ -53,11 +53,11 @@ double ***create_3dgrid_contiguous(const int n1, const int n2, const int n3)
 	double *ptr;
 	int i,j;
 
-	/* Previous version used an datascope/antelope macro allot
-	that handled malloc errors automatically. Made manual here.
-	*/
-	//allot(double *,ptr,n1*n2*n3);
-	//allot(double ***,ptr3d,n1);
+  /* Guard against all null values - possible with default constructors 
+   * in this library */
+  int count;
+  count=n1*n2*n3;
+  if(count==0) return NULL; 
 	ptr=(double *)calloc(n1*n2*n3,sizeof(double));
 	ptr3d=(double ***)calloc(n1,sizeof(double **));
 	if( ptr==NULL || ptr3d==NULL)
@@ -107,10 +107,11 @@ double **create_2dgrid_contiguous(const int n1, const int n2)
 	double *ptr;
 	int i;
 
-	/* As above this used to used these antelope allot functions from
-	stock.h*/
-	//allot(double *,ptr,n1*n2);
-	//allot(double **,ptr2ptr,n1);
+  /* Guard against all null values - possible with default constructors 
+   * in this library */
+  int count;
+  count=n1*n2;
+  if(count==0) return NULL; 
 	ptr=(double *)calloc(n1*n2,sizeof(double));
 	ptr2ptr=(double **)calloc(n1,sizeof(double *));
 	if(ptr==NULL || ptr2ptr==NULL)
@@ -141,9 +142,11 @@ double ****create_4dgrid_contiguous(const int n1, const int n2, const int n3, co
 	double *ptr;
 	int i,j,k;
 
-	/* As above these previously used antelope's allot macro*/
-	//allot(double *,ptr,n1*n2*n3*n4);
-	//allot(double ****,ptr4d,n1);
+  /* Guard against all null values - possible with default constructors 
+   * in this library */
+  int count;
+  count=n1*n2*n3*n4;
+  if(count==0) return NULL; 
 	ptr=(double *)calloc(n1*n2*n3*n4,sizeof(double));
 	if(ptr==NULL)
 	{
@@ -236,6 +239,9 @@ BasicGCLgrid::BasicGCLgrid()
 	x1low=0.0;  x1high=0.0;
 	x2low=0.0;  x2high=0.0;
 	x3low=0.0;  x3high=0.0;
+  for(int i=0;i<3;++i)
+    for(int j=0;j<3;++j) this->gtoc_rmatrix[i][j] = 0.0;
+  for(int i=0;i<3;++i) this->translation_vector[i] = 0.0;
 }
 // This could be defaulted as scalars are copied, I believe, but
 // best to be explicit.

@@ -482,7 +482,7 @@ def _migrate_component_parallel(query,
     :param Us3D:   3d slowness model for S 
     :param Vp1d:  1d P wave reference model
     :param Vs1d:  1d S wave referenc model
-    :param control:   control structure created by migrate_event.
+    :param control:   control structure (Metadata) created by migrate_event.
     :param verbose:  boolean with usual function.  Works silently when 
       False but posts some messages with dask.distibuted.print 
       when True.  
@@ -894,6 +894,7 @@ def load_velocity_models(db, pf, load_3d_models=False):
 
 def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                     base_query=None,
+                    minimum_data=10000,
                     verbose=False,
                     dryrun=False,
                     ):
@@ -998,7 +999,9 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     sliding_window_size = pf.get("sliding_window_size")
     if parallel:
         dask_client = mspass_client.get_scheduler()
-        num_workers = len(dask_client.scheduler_info()['workers'])
+        active_workers = dask_client.nthreads()
+        num_workers = len(active_workers)
+        del active_workers
         if sliding_window_size=="auto":
             N_submit_buffer = 2*num_workers
         else:
@@ -1073,11 +1076,9 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     key = source_collection + "_id"
     query[key] = sid
     n_total_this_sid = db.wf_Seismogram.count_documents(query)
-    if n_total_this_sid<=0:
-        print("migrate_event:   no data in database ",dbname,
-              " found for sid=",sid)
-        print("query that returned no documents: ",query)
-        print("Detective work on your database may be needed")
+    if n_total_this_sid<=minimum_data:
+        print(f"migrate_event:   number of Seismograms for sid={sid} is less than specified mininum_data={minimum_data}")
+        print("These data will be ignored: returning a Null result")
         return None
     gridid_list = db.wf_Seismogram.find(query).distinct('gridid')
     # exit after printing memory estimates if dryrun is enabled
@@ -1118,7 +1119,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     # what were once inner loops of this program.  As noted there are
     # so many parameters it makes the code more readable to pass just
     # this control metadata container around.  The dark side is if any
-    # new parameters are added changes are required in this function,
+    # new parameters are added changes are required in this function 
     control = _build_control_metadata(pf)
     if verbose:
         print("Successfully built internal control structure for pf input")
@@ -1159,7 +1160,7 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
     dt = pf.get_double("data_sample_interval")
     zdecfac = pf.get_long("Incident_TTgrid_zdecfac")
     
-    [Vp1d,Vs1d,Up3d,Us3d] = load_velocity_models(db, pf)
+    [Vp1d,Vs1d,Up3d,Us3d] = load_velocity_models(db, pf, load_3d_models=control["use_3d_velocity_model"])
 
     # Now bring in the grid geometry.  First the 2d surface of pseudostation points
     parent_grid_name = pf.get_string("Parent_GCLgrid_Name");
@@ -1176,10 +1177,13 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
                              source_lon, 
                              source_depth,
                              verbose=verbose)
+    print("Debug:  finished computing svm0")
+    use3d=control["use_3d_velocity_model"]
+    print(f"{parent.n1=} {parent.n2=} {border_pad=} {tmax=} {zmax=} {zpad=} {dt=} {tmax=} {zdecfac=} {use3d=}")
     TPfield = ComputeIncidentWaveRaygrid(parent, border_pad,
                                          Up3d, Vp1d, svm0, 
                                            zmax * zpad, tmax, dt, 
-                                             zdecfac, True)
+                                             zdecfac, control["use_3d_velocity_model"])
     del Up3d
     if verbose:
         print("Time to create incident wave travel time grid=",time.time()-t0)
@@ -1193,10 +1197,20 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         # this avoids needing to serialize each of thes on each submit 
         # line below
         t0_scatter=time.time()
+        # This may not be necessary for final version but is needed in 
+        # debugging figure out which of these is failing.   Without this 
+        # scatter returns after the data is at the scheduler but not 
+        # all the workers
+        dask_client.wait_for_workers(num_workers,timeout=300)
+        print("DEBUG:  starting to broadcast common data")
         f_parent = dask_client.scatter(parent,broadcast=True)
+        print("Broadcasting incident wave time grid")
         f_TPfield = dask_client.scatter(TPfield,broadcast=True)
+        print("Broadcasting slowness vector matrix")
         f_svm0 = dask_client.scatter(svm0,broadcast=True)
+        print("Tryint to broadcast empty Us3d container - likely problem")
         f_Us3d = dask_client.scatter(Us3d,broadcast=True)
+        print("Finished - trying to broadcast 1d velocity models")
         f_Vp1d = dask_client.scatter(Vp1d,broadcast=True)
         f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
         # this one isn't that large but probably better pushed this way

@@ -4,11 +4,19 @@ FROM ${MSPASS_BASE}
 LABEL maintainer="Ian Wang <yinzhi.wang.cug@gmail.com>"
 ENV PFPATH=/test/pf
 
-# Add cxx library
+USER root
+
+RUN apt-get update && apt-get install -y build-essential cmake && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install numpy
+
 ADD cxx /parallel_pwmig/cxx
 ADD data /parallel_pwmig/data
 ADD setup.py /parallel_pwmig/setup.py
 ADD python /parallel_pwmig/python
-RUN MSPASS_HOME=/usr/local pip3 install /parallel_pwmig -v
-RUN pip3 install vtk
 
+RUN MSPASS_HOME=/usr/local python3 -m pip install /parallel_pwmig -v --no-build-isolation
+
+RUN pip3 install vtk

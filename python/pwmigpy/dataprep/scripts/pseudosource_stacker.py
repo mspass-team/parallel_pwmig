@@ -21,13 +21,15 @@ import argparse
 import copy
 import time
 from bson.objectid import ObjectId
-from mspasspy.db.client import DBClient
-from mspasspy.db.database import Database
+import dask.distributed as ddist
+from mspasspy.client import Client
 from mspasspy.db.normalize import ObjectIdMatcher,normalize
 from mspasspy.ccore.utility import AntelopePf,Metadata,ErrorSeverity
 from mspasspy.ccore.seismic import SeismogramEnsemble
 from mspasspy.algorithms.basic import rotate_to_standard
 from mspasspy.util.Janitor import Janitor
+from mspasspy.util.db_utils import fetch_dbhandle,MongoDBWorker
+from mspasspy.util.seismic import number_live
 import pwmigpy.dataprep.binned_stacking as bsm
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth, kilometers2degrees
@@ -337,21 +339,214 @@ def set_fake_starttimes(stacked_data,clusterdoc,refmodel):
                 d.elog.log_error("set_fake_starttimes",message,ErrorSeverity.Invalid)
     return stacked_data
 
+def special_index_state(db,index_name="pseudosource_stacker_index",keys=["data_tag", "source_id"])->int:
+    """
+    This function is used in pseudsource_stacker to test if teh special index required by the application 
+    exists.   The index must match in two ways:  (1) the "name" field and (2) the keys defined for the 
+    index IN ORDER (indexes are hierarchic).   
+
+    Note the **kwargs paameters for this function should not be changed.  They there to make this 
+    slightly more generic.   The index name, in particular, could change.  
+
+    :param db:  Database object referencing the dataset of interest.
+    :return:  
+      0  - index with name defined by index_name does not exist and can be created
+      1  - index exists and matches name and keys
+      -1  - index exists with name of index_name but the keys do not match 
+    """
+    cursor=db.wf_Seismogram.list_indexes()
+    indexdoc=None
+    for doc in cursor:
+        if doc['name'] == index_name:
+            indexdoc=doc
+            break
+    if indexdoc is None:
+        return 0
+    # indexdoc is not a dictionary or a list but has some concepts from both
+    # This algorithm is used because len is defined but "in" does not work
+    indexkeys = indexdoc['key']
+    if len(indexkeys)!=len(keys):
+        return -1
+    i=0
+    for k in keys:
+        if keys[i]!=k:
+            return -1
+        i+=1
+    return 1
+
+def verify_wfindex(db,verbose=False):
+    """
+    Called from main to assure the special index with the fixed name 
+    "pseudosource_stacker_index" is defined and of the required form.  
+    That form is the two keys in order:  "data_tag" and "source_id".  
+    If the index exists and matches reuirements the function does nothing. 
+    If an index with the special name does not exist it is created. 
+    If the index exists but is not of the required form the function 
+    throws a RuntimeError exception to abort the application.  
+    """
+    index_state = special_index_state(db)
+    match index_state:
+        case -1:
+            message = "verify_wfindex:  special index for wf_Seismogram called pseudosource_stacker_index exists but does not match requirements\n"
+            message += "remove the existing index and run rerun this application - it will create the correct index automatically"
+            raise RuntimeError(message)
+        case 1:
+            if verbose:
+                print("index with name pseudosource_stacker_index exists in correct form - no action needed")
+        case 0:
+            if verbose:
+                print("pseudosource_stacker_index does not exist - creating it now")
+                db.wf_Seismogram.create_index([("data_tag" , 1),('source_id' , 1)],name="pseudosource_stacker_index")
+        case _:
+            message = "verify_wfindex:  special_index_state returned an unexpected falue={}\n".format(index_state)
+            message += "This should not happen and is a bug that needs to be fixed"
+            raise RuntimeError(message)
+
+def process_group(clusterdoc,
+                  dbname,
+                  base_query,
+                  magwt_control,
+                  site_matcher,
+                  control,
+                  janitor,
+                  snrwt_control,
+                  refmodel,
+                  output_directory,
+                  output_data_tag,
+                  verbose=False,
+                  ):
+    db = fetch_dbhandle(dbname)
+    if verbose:
+        print("Begin processing for data with telecluster_id=",clusterdoc[['_id']])
+    source_id_list = parse_telecluster_source_ids(clusterdoc)
+    query_list = srcidlist2querylist(base_query,source_id_list)
+
+    if magwt_control["enable"]:
+        dataset = bsm.load_and_sort(db, 
+                                    query_list,
+                                    magnitude_key=magwt_control["magnitude_key"],
+                                    full_weight_magnitude=magwt_control["full_weight_magnitude"],
+                                    floor_magnitude=magwt_control["floor_magnitude"],
+                                    minimum_weight=magwt_control["minimum_weight"],
+                                    default_magnitude=magwt_control["default_magnitude"],
+                                    magnitude_weight_key=magwt_control["magnitude_weight_key"],
+                                    )
+    else:
+        dataset = bsm.load_and_sort(db)
+    input_size = 0
+    input_live_size = 0
+    for key in dataset.keys():
+        ens = dataset[key]
+        input_size += number_live(ens)
+        # this loads metadata from site collection
+        # important to note that default used here loads the data into 
+        # the ensemble Metadata container.  That is corect as the 
+        # load_and_sort function returns data sorted by site_id.  
+        ens = normalize(ens,site_matcher)
+        # TODO:  this is a temporary workaround for a bug in decorators
+        # use the ensemble version when it is resolved
+        dataset[key] = rotate_to_standard(ens)
+        #for d in ens.member:
+        #    if d.live:
+        #        d.rotate_to_standard()
+        dataset[key]=ens
+        input_live_size += number_live(ens)
+    output_size = 0
+    output_number_live = 0
+    for algorithm in control.algorithm_list:
+        if control.enabled(algorithm):
+            argdoc = control.getargs(algorithm)
+            if verbose:
+                print("Computing stacks with algorithm=",algorithm)
+            match algorithm:
+                case "average":
+                    # average currently has no options so argdoc is ignored
+                    stacked_data = bsm.stack_groups(dataset,
+                                                method=algorithm,
+                                                janitor=janitor)
+                case "weighted_average":
+                    dataset = set_weights(dataset,
+                                          snrwt_control,
+                                          summary_weight_output_key=argdoc["weight_key"],
+                                    )
+                    stacked_data = bsm.stack_groups(dataset,
+                                    method=algorithm,
+                                    weight_key=argdoc["weight_key"],
+                                    undefined_weight=argdoc["undefined_weight"],
+                                    )
+                case "median":
+                    stacked_data = bsm.stack_groups(dataset,
+                                    method=algorithm,
+                                    janitor=janitor,
+                                    timespan_method=argdoc["timespan_method"],
+                                    pad_fraction_cutoff=argdoc["pad_fraction_cutoff"],
+                                    )
+                case "robust_dbxcor":
+                    stacked_data = bsm.stack_groups(dataset,
+                                    method=algorithm,
+                                    janitor=janitor,
+                                    timespan_method=argdoc["timespan_method"],
+                                    pad_fraction_cutoff=argdoc["pad_fraction_cutoff"],
+                                    residual_norm_floor=argdoc["residual_norm_floor"],
+                                    )
+            if stacked_data.live:
+                output_size += number_live(stacked_data)
+                stacked_data=load_special_attributes(stacked_data,
+                                                     algorithm,
+                                                     argdoc,
+                                                     clusterdoc,
+                                                         )
+                # this operation could be done in stacked_data but 
+                # more maintanable if done here for a minor cost
+                # problem is site metadata is not retained for stacked 
+                # data but site_id values are.  Hence we have to renormalzie
+                # the stacked data.
+                # note the override of default to force normalization by members
+                stacked_data = normalize(stacked_data,site_matcher,handles_ensembles=False)
+                stacked_data = set_fake_starttimes(stacked_data,clusterdoc,refmodel)
+                # this is loaded from the telecluster collection but 
+                # we change the key name here.  Cleare this way than 
+                # if it had been pushed to the load_special_attributes
+                # function.
+                stacked_data["telecluster_events"] = source_id_list
+                dfile=make_dfile_name(clusterdoc)
+                output_number_live += number_live(stacked_data)
+                db.save_data(stacked_data,
+                             collection="wf_Seismogram",
+                             storage_mode="file",
+                             dir=output_directory,
+                             dfile=dfile,
+                             data_tag=output_data_tag,
+                             )
+    # cleanup before exiting and return the id from clusterdoc
+    del stacked_data
+    del dataset
+    return [clusterdoc,input_size,input_live_size,output_size,output_number_live]
 def main(args=None):
     """
     Command line tool replacement for original C++ program in original 
     pwmig that was called RFeventstacker.   
     
-    This tool stackes data binned previouisly by telecluster the 
+    This tool stacks data binned previouisly by telecluster the 
     cluster components stored in documents in a collection called 
-    "telecluster".
+    "telecluster".   It is primarily intended to deconvolved data but 
+    with proper use it should work for an alternative to implement the 
+    ancient idea from Scott Neal's dissertation with decon of 
+    pseeudostation stacked data.  That is a research problem though.  
+    
+    Experience has shown this algorithm is almost immediately io bound 
+    even with only a handful of workers.   The problem seems worse 
+    on HPC lustre file systems where reading the data requires a fair 
+    number of file open-closes.   To be concrete on the IU cluster 
+    I found running this reading lustre files any more than 8 workers 
+    was pointless.   
     """
     t0=time.time()
     if args is None:
         args = sys.argv[1:]
     parser = argparse.ArgumentParser(
         prog = "pseudosource_stacker",
-        usage="%(prog)s dbname [-pf pffile -outdir output_directory -tag dtag -model 1dmodel -v]",
+        usage="%(prog)s dbname [-pf pffile -outdir output_directory -tag dtag -model 1dmodel -w sliding_window_size -p -v]",
         description="Stack groups of common source gathers using groupings created by telecluster",
     )
     parser.add_argument(
@@ -393,6 +588,20 @@ def main(args=None):
         help="Reference 1d earth model for travel time calculations (default iasp91)",
         )
     parser.add_argument(
+            "-p",
+            "--parallel",
+            action="store_true",
+            help="Run parallel (default is serial)",
+        )
+    parser.add_argument(
+            "-w",
+            "--swsize",
+            action="store",
+            type=int,
+            default="20",
+            help="Sliding window of futures size (default 20)",
+        )
+    parser.add_argument(
            "-v",
            "--verbose",
            action="store_true",
@@ -404,13 +613,24 @@ def main(args=None):
         print("pseudosource_stacker:  started and running in verbose mode")
     else:
         verbose = False
+    if args.parallel:
+        parallel=True
+        print("Parallel mode - assuming dask cluster is active")
+    else:
+        parallel=False
     output_directory = args.output_directory
     dtag = args.data_tag
     refmodname = args.model
     refmodel = TauPyModel(refmodname)
+    mspass_client=Client()
     dbname = args.dbname
-    dbclient=DBClient()
-    db=Database(dbclient,dbname)
+    db = mspass_client.get_database(dbname)
+    if parallel:
+        dask_client = mspass_client.get_scheduler()
+        print("Creating worker plugin")
+        dbplugin = MongoDBWorker(dbname)
+        print("Running register_plugin")
+        dask_client.register_plugin(dbplugin)
     # we always require site data to calculate travel times 
     # Could do this more generically but for require this be site with 
     # ObjectId matching
@@ -427,108 +647,100 @@ def main(args=None):
     for key in auxmdkeys:
         janitor.add2keepers(key)
     base_query = get_base_query_from_pf(pf)
-    n = db.telecluster.count_documents({})
-    print("pseudosource_stacker:  working on {} source clusters defined in telecluster collection".format(n))
-    # outer loop over groupings defined by telecluster
-    # currently read all - TODO:  add optional query of telecluster collction
-    # note this could be parallelized over this outer loop
-    cursor = db.telecluster.find({})   
-    for clusterdoc in cursor:
-        source_id_list = parse_telecluster_source_ids(clusterdoc)
-        query_list = srcidlist2querylist(base_query,source_id_list)
-
-        if magwt_control["enable"]:
-            dataset = bsm.load_and_sort(db, 
-                                        query_list,
-                                        magnitude_key=magwt_control["magnitude_key"],
-                                        full_weight_magnitude=magwt_control["full_weight_magnitude"],
-                                        floor_magnitude=magwt_control["floor_magnitude"],
-                                        minimum_weight=magwt_control["minimum_weight"],
-                                        default_magnitude=magwt_control["default_magnitude"],
-                                        magnitude_weight_key=magwt_control["magnitude_weight_key"],
-                                        )
-        else:
-            dataset = bsm.load_and_sort(db)
+    # for efficiency it is important to create this index if it doesn't exist
+    # this function defined above handles that 
+    # if it returns the index exists with the right form.
+    # it can throw an exception but when it does the program will and should abort
+    verify_wfindex(db,verbose=verbose)
+    N = db.telecluster.count_documents({})
+    if N==0:
+        message="pseudosource_stacker:   telecluster collection is empty - no data to process"
+        raise RuntimeError(message)
+    print("pseudosource_stacker:  working on {} source clusters defined in telecluster collection".format(N))
+    if verbose:
+        print("telecluster_id number_in number_in_live number_out number_live_out")
+    if parallel:
+        swsize = args.swsize
         if verbose:
-            print("Loaded {} station gathers with {} sources for telecluster doc id={}".format(len(dataset),len(source_id_list),clusterdoc['_id']))
-        for key in dataset.keys():
-            ens = dataset[key]
-            # this loads metadata from site collection
-            # important to note that default used here loads the data into 
-            # the ensemble Metadata container.  That is corect as the 
-            # load_and_sort function returns data sorted by site_id.  
-            ens = normalize(ens,site_matcher)
-            # TODO:  this is a temporary workaround for a bug in decorators
-            # use the ensemble version when it is resolved
-            dataset[key] = rotate_to_standard(ens)
-            #for d in ens.member:
-            #    if d.live:
-            #        d.rotate_to_standard()
-            dataset[key]=ens
-        for algorithm in control.algorithm_list:
-            if control.enabled(algorithm):
-                if verbose:
-                    print("stacking these data with algorithm=",algorithm)
-                argdoc = control.getargs(algorithm)
-                match algorithm:
-                    case "average":
-                        # average currently has no options so argdoc is ignored
-                        stacked_data = bsm.stack_groups(dataset,
-                                                    method=algorithm,
-                                                    janitor=janitor)
-                    case "weighted_average":
-                        dataset = set_weights(dataset,
-                                              snrwt_control,
-                                              summary_weight_output_key=argdoc["weight_key"],
-                                        )
-                        stacked_data = bsm.stack_groups(dataset,
-                                        method=algorithm,
-                                        weight_key=argdoc["weight_key"],
-                                        undefined_weight=argdoc["undefined_weight"],
-                                        )
-                    case "median":
-                        stacked_data = bsm.stack_groups(dataset,
-                                        method=algorithm,
-                                        janitor=janitor,
-                                        timespan_method=argdoc["timespan_method"],
-                                        pad_fraction_cutoff=argdoc["pad_fraction_cutoff"],
-                                        )
-                    case "robust_dbxcor":
-                        stacked_data = bsm.stack_groups(dataset,
-                                        method=algorithm,
-                                        janitor=janitor,
-                                        timespan_method=argdoc["timespan_method"],
-                                        pad_fraction_cutoff=argdoc["pad_fraction_cutoff"],
-                                        residual_norm_floor=argdoc["residual_norm_floor"],
-                                        )
-                if stacked_data.live:
-                    stacked_data=load_special_attributes(stacked_data,
-                                                         algorithm,
-                                                         argdoc,
-                                                         clusterdoc,
-                                                             )
-                    # this operation could be done in stacked_data but 
-                    # more maintanable if done here for a minor cost
-                    # problem is site metadata is not retained for stacked 
-                    # data but site_id values are.  Hence we have to renormalzie
-                    # the stacked data.
-                    # note the override of default to force normalization by members
-                    stacked_data = normalize(stacked_data,site_matcher,handles_ensembles=False)
-                    stacked_data = set_fake_starttimes(stacked_data,clusterdoc,refmodel)
-                    # this is loaded from the telecluster collection but 
-                    # we change the key name here.  Cleare this way than 
-                    # if it had been pushed to the load_special_attributes
-                    # function.
-                    stacked_data["telecluster_events"] = source_id_list
-                    dfile=make_dfile_name(clusterdoc)
-                    db.save_data(stacked_data,
-                                 collection="wf_Seismogram",
-                                 storage_mode="file",
-                                 dir=output_directory,
-                                 dfile=dfile,
-                                 data_tag=dtag,
-                                 )
-    
+            print(f"Using sliding window size={swsize}")
+        f_site_matcher = dask_client.scatter(site_matcher,broadcast=True)
+        f_refmodel = dask_client.scatter(refmodel,broadcast=True)
+        # cache the entire list of documents or we will get cursor timeouts
+        doclist=list()
+        cursor = db.telecluster.find({})
+        for doc in cursor:
+            doclist.append(doc)
+        cursor.close()
+        futureslist=list()
+        i_p = 0
+
+        for doc in doclist:
+            # assumes process_group default for verbose is false
+            f=dask_client.submit(process_group,
+                                 doc,
+                                 dbname,
+                                 base_query,
+                                 magwt_control,
+                                 f_site_matcher,
+                                 control,
+                                 janitor,
+                                 snrwt_control,
+                                 f_refmodel,
+                                 output_directory,
+                                 dtag,
+               )
+            futureslist.append(f)
+            i_p += 1
+            if i_p>=swsize:
+                break
+        
+        # Use the sliding window algorithm
+        # similar to pwmig use but there is not accumulation here
+        seq = ddist.as_completed(futureslist)
+        for f in seq:
+            f_out = f.result()
+            dask_client.cancel(f)
+            del f
+            if verbose:
+                idout = f_out[0]['_id']
+                print(f"{idout} {f_out[1]} {f_out[2]}  {f_out[3]} {f_out[4]}")
+            if i_p < N:
+                f=dask_client.submit(process_group,
+                                     doclist[i_p],
+                                     dbname,
+                                     base_query,
+                                     magwt_control,
+                                     f_site_matcher,
+                                     control,
+                                     janitor,
+                                     snrwt_control,
+                                     f_refmodel,
+                                     output_directory,
+                                     dtag,
+                   )
+                seq.add(f)
+                i_p += 1
+    else:
+        # outer loop over groupings defined by telecluster
+        # parallel version driven by list of docs
+        cursor = db.telecluster.find({})   
+        for clusterdoc in cursor:
+            f_out = process_group(clusterdoc,
+                              dbname,
+                              base_query,
+                              magwt_control,
+                              site_matcher,
+                              control,
+                              janitor,
+                              snrwt_control,
+                              refmodel,
+                              output_directory,
+                              dtag,
+                              verbose=verbose,
+            )
+            if verbose:
+                idout = f_out[0]['_id']
+                print(f"{idout} {f_out[1]} {f_out[2]}  {f_out[3]} {f_out[4]}")
     t=time.time()
     print("Elapsed time=",t-t0)
 

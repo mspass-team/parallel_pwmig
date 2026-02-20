@@ -43,7 +43,7 @@ def main(args=None):
         action="store",
         type=str,
         default="Telecluster.pf",
-        help="Set parameter file that sets up clustering geometry ",
+        help="Set parameter file that sets up clustering geometry (default telecluster.pf)",
     )
     parser.add_argument(
         "-q",
@@ -51,7 +51,7 @@ def main(args=None):
         action="store",
         type=str,
         default=None,
-        help="Specify optional query (json format) to apply to source collection",
+        help="Specify optional query (json format) to apply to source collection (off by default)",
     )
     parser.add_argument(
         "-o",
@@ -59,7 +59,7 @@ def main(args=None):
         action="store",
         type=str,
         default=None,
-        help="Use with comma separated list of keys for other data to be loaded from source and stored in cluster collection"
+        help="Use with comma separated list of keys for other data to be loaded from source and stored in cluster collection (default is null)"
     )
     args = parser.parse_args(args)
     # maybe should alter the function to take the mongodb handle not just 

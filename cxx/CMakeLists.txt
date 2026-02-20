@@ -19,15 +19,29 @@ set (PYBIND11_CPP_STANDARD -std=c++17)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
-  set(CMAKE_CXX_OUTPUT_EXTENSION_REPLACE ON)
-  message (STATUS "Enabled Coverage")
-endif ()
+#if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+#  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
+#  set(CMAKE_CXX_OUTPUT_EXTENSION_REPLACE ON)
+#  message (STATUS "Enabled Coverage")
+#endif ()
 
-find_package (PythonInterp 3)
+# This is needed to access numpy includes in pybind11 code
+# needed here for a complex initialization issue with GCLgrid library
+# and the requirement to convert grid data to numpy arrays
+if(Python_NumPy_INCLUDE_DIRS)
+    set(Python_NumPy_HINT "${Python_NumPy_INCLUDE_DIRS}")
+    message(STATUS "Using NumPy Hint: ${Python_NumPy_HINT}")
+endif()
 
-if (PYTHONINTERP_FOUND)
+find_package(Python 3 REQUIRED COMPONENTS Interpreter Development.Module NumPy)
+
+if(DEFINED ENV{CONDA_PREFIX})
+    include_directories($ENV{CONDA_PREFIX}/include)
+endif()
+
+find_package (Python 3 REQUIRED COMPONENTS Interpreter Development.Module NumPy)
+
+if (Python_Interpreter_FOUND)
   find_package (pybind11)
   if (NOT pybind11_FOUND)
     message (STATUS "Building Pybind11")
@@ -37,9 +51,11 @@ if (PYTHONINTERP_FOUND)
       ${PROJECT_BINARY_DIR}/pybind11
       )
   endif ()
-  message (STATUS "PYTHON_LIBRARIES = ${PYTHON_LIBRARIES}")
-  message (STATUS "PYTHON_EXECUTABLE = ${PYTHON_EXECUTABLE}")
-  message (STATUS "PYTHON_INCLUDE_DIRS = ${PYTHON_INCLUDE_DIRS}")
+  # In the ROOT CMakeLists.txt
+  include_directories(${Python_INCLUDE_DIRS} ${Python_NumPy_INCLUDE_DIRS})
+  message (STATUS "PYTHON_LIBRARIES = ${Python_LIBRARIES}")
+  message (STATUS "PYTHON_EXECUTABLE = ${Python_EXECUTABLE}")
+  message (STATUS "PYTHON_INCLUDE_DIRS = ${Python_INCLUDE_DIRS}")
   message (STATUS "pybind11_LIBRARIES = ${pybind11_LIBRARIES}")
   message (STATUS "pybind11_INCLUDE_DIR= ${pybind11_INCLUDE_DIR}")
 else ()
