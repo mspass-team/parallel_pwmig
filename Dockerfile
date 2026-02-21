@@ -1,5 +1,4 @@
-ARG MSPASS_BASE=ghcr.io/mspass-team/mspass:latest
-FROM ${MSPASS_BASE}
+FROM ghcr.io/mspass-team/mspass:latest
 
 LABEL maintainer="Ian Wang <yinzhi.wang.cug@gmail.com>"
 ENV PFPATH=/test/pf
@@ -20,3 +19,5 @@ ADD python /parallel_pwmig/python
 RUN MSPASS_HOME=/usr/local python3 -m pip install /parallel_pwmig -v --no-build-isolation
 
 RUN pip3 install vtk
+
+RUN conda install pygmt
