@@ -130,7 +130,7 @@ for distance axis.  include file is more rational - I didn't change this
 to reduce coding errors*/
 Geographic_point RadialGrid::grid_point(const int ir, const int id)
 {
-	if( (ir<0) || (ir>=nazbins) || (id<0) || (id>=ndelbins) )
+	if( (ir<0) || (ir>nazbins) || (id<0) || (id>ndelbins) )
 	{
 		stringstream ss;
 		ss << "RadialGrid:  requested index (az,del)=("
