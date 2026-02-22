@@ -34,37 +34,57 @@ RadialGrid::RadialGrid(const AntelopePf& pf)
 	lon0=pf.get_double("origin_longitude");
 	lat0=rad(lat0);
 	lon0=rad(lon0);
-	list<string> ptslist;
-	/* this will throw an exception if the key is missing.  We let it do
-	that for the expected context. */
-	ptslist=pf.get_tbl("delta_grid_points");
-	for(auto sptr=ptslist.begin();sptr!=ptslist.end();++sptr)
-	{
-		double valin;
-		stringstream ss(*sptr);
-		ss >> valin;
-		if( (valin<0.0) || (valin>180.0) )
-			throw MsPASSError(base_error
-				+ string("Illegal distance specification=")
-				+ (*sptr));
-		delta.push_back(rad(valin));
-	}
-	ndelta=delta.size();
-	ndelbins=ndelta-1;
-	ptslist=pf.get_tbl("azimuth_grid_points");
-	for(auto sptr=ptslist.begin();sptr!=ptslist.end();++sptr)
-	{
-		double valin;
-		stringstream ss(*sptr);
-		ss >> valin;
-		if( (valin<-180.0) || (valin>360.0) )
-			throw MsPASSError(base_error
-				+ string("Illegal azimuth specification=")
-				+ (*sptr));
-		azimuth.push_back(rad(valin));
-	}
-	naz=azimuth.size();
-	nazbins=naz-1;
+  if(pf.get_bool("use_regular_grid"))
+  {
+    this->naz = pf.get_long("number_grid_points_for_azimuth");
+    this->ndelta = pf.get_long("number_grid_points_for_delta");
+    double azmin = pf.get_double("grid_minimum_azimuth");
+    double azmax = pf.get_double("grid_maximum_azimuth");
+    double delmin = pf.get_double("grid_minimum_delta");
+    double delmax = pf.get_double("grid_maximum_delta");
+  	double daz=(azmax-azmin)/static_cast<double>(nazbins);
+  	double ddel=(delmax-delmin)/static_cast<double>(ndelbins);
+  	int i;
+  	for(i=0;i<naz;++i)
+  	  this->azimuth.push_back(rad(azmin+daz*static_cast<double>(i)));
+  	for(i=0;i<ndelta;++i)
+  	  this->delta.push_back(rad(delmin+ddel*static_cast<double>(i)));
+  }
+  else
+  {
+  	list<string> ptslist;
+  	/* this will throw an exception if the key is missing.  We let it do
+  	that for the expected context. */
+  	ptslist=pf.get_tbl("delta_grid_points");
+  	for(auto sptr=ptslist.begin();sptr!=ptslist.end();++sptr)
+  	{
+  		double valin;
+  		stringstream ss(*sptr);
+  		ss >> valin;
+  		if( (valin<0.0) || (valin>180.0) )
+  			throw MsPASSError(base_error
+  				+ string("Illegal distance specification=")
+  				+ (*sptr));
+  		this->delta.push_back(rad(valin));
+  	}
+  	this->ndelta=delta.size();
+  	ptslist=pf.get_tbl("azimuth_grid_points");
+  	for(auto sptr=ptslist.begin();sptr!=ptslist.end();++sptr)
+  	{
+  		double valin;
+  		stringstream ss(*sptr);
+  		ss >> valin;
+  		if( (valin<-180.0) || (valin>360.0) )
+  			throw MsPASSError(base_error
+  				+ string("Illegal azimuth specification=")
+  				+ (*sptr));
+  		this->azimuth.push_back(rad(valin));
+  	}
+  	this->naz=azimuth.size();
+  }
+  /* these are kind of silly but we need to set them */
+  this->nazbins=this->naz-1;
+  this->ndelbins=this->ndelta-1;
 }
 RadialGrid::RadialGrid(const double azmin, const double azmax, const int nazin,
 		const double delmin, const double delmax, const int ndelin,
