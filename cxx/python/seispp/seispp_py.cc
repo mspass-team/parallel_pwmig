@@ -89,6 +89,8 @@ py::class_<RadialGrid>(m,"RadialGrid","Defines global radial grid with great cir
   .def("number_azimuth_bins",&RadialGrid::number_azimuth_bins,"Return number of azimuth bins in grid (one less than points)")
   .def("number_distance_bins",&RadialGrid::number_distance_bins,"Return number of distance bins in grid (one less than points)")
   .def("cell",&RadialGrid::cell,"Return a Metadata container with attributes defining a cell specified by index positions")
+  .def_readonly("lat0",&RadialGrid::lat0,"Latitude of origin (radians)")
+  .def_readonly("lon0",&RadialGrid::lon0,"Longitude of origin (radians)")
   .def_readonly("naz",&RadialGrid::naz,"Number of points in azimuth axis")
   .def_readonly("ndelta",&RadialGrid::ndelta,"Number of points in axis")
   .def_readonly("azimuth",&RadialGrid::azimuth,"Return array of azimuth (radians) of grid cells")
