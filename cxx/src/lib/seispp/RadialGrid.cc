@@ -42,8 +42,8 @@ RadialGrid::RadialGrid(const AntelopePf& pf)
     double azmax = pf.get_double("grid_maximum_azimuth");
     double delmin = pf.get_double("grid_minimum_delta");
     double delmax = pf.get_double("grid_maximum_delta");
-  	double daz=(azmax-azmin)/static_cast<double>(nazbins);
-  	double ddel=(delmax-delmin)/static_cast<double>(ndelbins);
+  	double daz=(azmax-azmin)/static_cast<double>(this->naz - 1);
+  	double ddel=(delmax-delmin)/static_cast<double>(this->ndelta - 1);
   	int i;
   	for(i=0;i<naz;++i)
   	  this->azimuth.push_back(rad(azmin+daz*static_cast<double>(i)));
