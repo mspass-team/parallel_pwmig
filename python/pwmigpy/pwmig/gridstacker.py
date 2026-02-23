@@ -289,12 +289,12 @@ def save_results(db,mastergrid,stack,sumwt,control,nametag_base,algorithm):
     gclstack = GCLvectorfield3d(mastergrid,3)
     gclstack.name = nametag_base + "_stack_" + algorithm
     load_numpy_data(gclstack,stack)
-    GCLdbsave(gclstack,db,dir=control.dir)
+    GCLdbsave(db,gclstack,dir=control.dir)
     if control.save_weight_data:
         gclsumwt = GCLscalarfield3d(mastergrid)
         load_numpy_data(gclsumwt,sumwt.data)
         gclsumwt.name = nametag_base + "_sumwt_" + algorithm
-        GCLdbsave(gclsumwt,db,dir=control.dir)
+        GCLdbsave(db,gclsumwt,dir=control.dir)
                                 
     
     
