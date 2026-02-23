@@ -288,8 +288,8 @@ def save_results(db,mastergrid,stack,sumwt,control,nametag_base,algorithm):
     
         
 def gridstacker(doclist_or_cursor,
-                dbname_or_handle,
-                control,
+                db,
+                control=None,
                 methods=["simple","azimuth_weighting","bin_weighting"],
                 output_base_name="stack",
                 pfname="gridstacker.pf",
@@ -342,12 +342,14 @@ def gridstacker(doclist_or_cursor,
       The list is tiny compared to size of any expected image volume so 
       use of a list instead of cursor is wise to reduce the chances of 
       a cursor timeout.  
-    :param dbname_or_handle:  what the name suggests. It can be either 
-      just a db name or an instance of a `mspasspy.db.Database` object.  
-      In either case it must point at the database where pwmig saved it's output. 
+    :param dbname_or_handle: instance of mspasspy.db.Database with 
+      pwmig data stored in the GCLfield collection.   Note this function 
+      is currently serial so we use the regular client. 
     :param control:  instance of gridstacker_control defined in this module.  
       It is a data structure containing the control parameters for this 
-      algorithm.  
+      algorithm.  If set None (default) the pfname argument is used to 
+      attempt to construct this data structure (object) from the pf 
+      file defined by pfname.
     :param methods:  list of keywords defining which algorithm(s) to run.  
       Currently one or more of the following:  "average", "azimuth_weighting", 
       or "bin_weighting".   Default is all three which means all three will 
@@ -361,13 +363,15 @@ def gridstacker(doclist_or_cursor,
     :param pfname:  file name of "pf-file" containing control parameters 
       to drive this function.   Contents are loaded into a 
       gridstacker_control object defined at the top of this module.  
+      Default is "gridstacker.pf" and assumes a file by that name exists 
+      in the current directory and has the set of required parameters.
     """
-    control = gridstacker_control(pfname)
+    if control is None:
+        control = gridstacker_control(pfname)
     if len(methods)==1 and "simple" in methods:
         require_weights=False
     else:
         require_weights = True
-    db = fetch_dbhandle(dbname_or_handle)
     # large memory model - may want to convert to dask array to reduce memory footprint
     count = 0
     arraylist=list()
@@ -381,6 +385,7 @@ def gridstacker(doclist_or_cursor,
                 message = "gridstacker:  document number {} retrieved from GCLfielddata collection is missing required key='telecluster_id'\n".format(count)
                 message += "That key is required for azimuthal or binned weighting pwmig/pwstack. "
                 raise ValueError(message)
+        print("DEBUG:  Loading image with name=",doc['name'])
         fdata = GCLdbread(db,doc)
         data_array = extract_data_array(fdata)
         if count==0:
@@ -401,10 +406,13 @@ def gridstacker(doclist_or_cursor,
     for alg in methods:
         match alg:
             case "average":
+                print("DEBUG:  string to runs imple stack")
                 stack,sumwt = stack_data(arraylist, control.solid_angle_cutoff)
             case "azimuth_weighting":
+                print("DEBUG:  trying to run azimuthal weighted stack")
                 stack,sumwt = stack_data(arraylist, control.solid_angle_cutoff, azwts)
             case "bin_weighting":
+                print("DEBUG:  trying to run bin weight stack")
                 stack,sumwt = stack_data(arraylist, control.solid_angle_cutoff, binwts)
             case _:
                 print("Unsupported key specified for method arg=",alg)
