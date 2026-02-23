@@ -15,7 +15,17 @@ from pwmigpy.ccore.gclgrid import (GCLgrid3d,
                                    )
 from pwmigpy.db.database import GCLdbread,GCLdbsave
 from mspasspy.ccore.utility import AntelopePf
-from mspasspy.util.db_utils import fetch_dbhandle
+
+import psutil
+import os
+
+def report_memory_use():
+    """
+    Simple little function to print a report of process memory use
+    at a particular point in the code.
+    """
+    process = psutil.Process(os.getpid())
+    print(f"Current memory usage: {process.memory_info().rss / 1024**2:.2f} MB")
 
 class gridstacker_control:
     """
@@ -220,7 +230,7 @@ def normalize_by_solid_angle(imagevolume,cutoff)->tuple:
     omega) zeroed.  Corresponding cells have the vectors in that cell 
     zeroed on the return in component 0.
     """
-    image = imagevolume[:,:,:,0:2].copy()
+    image = imagevolume[:,:,:,0:3].copy()
     omega = imagevolume[:,:,:,3].copy()
     # not component 4 of each data vector contains the sume of grt weights 
     # they are applied to each 3c vector in the C++ PWMIGfielddata.accumulate 
@@ -232,7 +242,8 @@ def normalize_by_solid_angle(imagevolume,cutoff)->tuple:
     # this zeros the masked values
     omega_inv[omega_inv.mask] = 0.0
     # now apply omega_inv - works because zeroed masked values
-    for k in range(N4):
+    # range is 0,1,2 because image extracts only teh 3c vector data
+    for k in range(3):
         image[:,:,:,k] = image[:,:,:,k] * omega_inv.data
     return image,omega_inv
 
@@ -290,7 +301,7 @@ def save_results(db,mastergrid,stack,sumwt,control,nametag_base,algorithm):
 def gridstacker(doclist_or_cursor,
                 db,
                 control=None,
-                methods=["simple","azimuth_weighting","bin_weighting"],
+                methods=["average","azimuth_weighting","bin_weighting"],
                 output_base_name="stack",
                 pfname="gridstacker.pf",
                 ):
@@ -368,7 +379,7 @@ def gridstacker(doclist_or_cursor,
     """
     if control is None:
         control = gridstacker_control(pfname)
-    if len(methods)==1 and "simple" in methods:
+    if len(methods)==1 and "average" in methods:
         require_weights=False
     else:
         require_weights = True
@@ -395,6 +406,8 @@ def gridstacker(doclist_or_cursor,
                 message = "Size mismatch of inputs from doclist - check query that generated list and try again"
                 raise RuntimeError(message)
         arraylist.append(data_array)
+        print(f"{count} grids loaded")
+        report_memory_use()
         count += 1
     if require_weights:
         if "azimuth_weighting" in methods:
