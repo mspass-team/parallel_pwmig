@@ -271,7 +271,8 @@ def stack_data(imagelist,cutoff,weights=None):
         if weighted_stack:
             img *= weights[i]
             omega_inv *= weights[i] 
-        img /= omega_inv 
+        for k in range(3):
+            img[:,:,:,k] *= omega_inv
         sum_images += img 
         sumwts += omega_inv.data
     # normally testibng for zero like this would be problematic but it 
