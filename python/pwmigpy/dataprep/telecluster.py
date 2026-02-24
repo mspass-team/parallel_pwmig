@@ -198,11 +198,10 @@ def telecluster(dbname,pfname="telecluster.pf",query={},othermd=[]):
                 # set wrap method carefully when near 0 or dateline 
                 glon = grid.lon(i,j)
                 if abs(glon)<np.radians(30.0):
-                    wrap_method="greenwich"
+                    wrap_point="greenwich"
                 else:
-                    wrap_method="dateline"
-
-                centroid=compute_centroid(hypos,wrap_method=wrap_method)
+                    wrap_point="dateline"
+                centroid=compute_centroid(hypos,wrap_point=wrap_point)
                 doc=dict()
                 doc['gridname']=gridname
                 doc['hypocentroid']={'lat' : np.rad2deg(centroid.lat),
