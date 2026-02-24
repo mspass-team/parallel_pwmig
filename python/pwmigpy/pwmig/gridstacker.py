@@ -291,8 +291,10 @@ def save_results(db,mastergrid,stack,sumwt,control,nametag_base,algorithm):
     print("Before running load_numpy_data")
     print(type(gclstack),gclstack.name,gclstack.n1,gclstack.n2,gclstack.n3,gclstack.nv)
     load_numpy_data(gclstack,stack)
-    GCLdbsave(db,gclstack,dir=control.dir)
     print("After running load_numpy_data")
+    print(type(gclstack),gclstack.name,gclstack.n1,gclstack.n2,gclstack.n3,gclstack.nv)
+    GCLdbsave(db,gclstack,dir=control.dir)
+    print("After save")
     print(type(gclstack),gclstack.name,gclstack.n1,gclstack.n2,gclstack.n3,gclstack.nv)
     if control.save_weight_data:
         gclsumwt = GCLscalarfield3d(mastergrid)
