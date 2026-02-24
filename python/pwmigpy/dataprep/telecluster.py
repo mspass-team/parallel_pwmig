@@ -106,18 +106,44 @@ def cat2dict(evcat):
         hypos[id]=h
         evcat.advance(1)
     return hypos
-def compute_centroid(hypos):
+def compute_centroid(hypos,wrap_point="dateline"):
     """
     Takes dict returned by function above and computes the hypocentroid 
     of that contents as a Hypocenter object.   Note the lat and lon 
     are in original units (radians here) and time is a (normnally) meaningless 
     mean origin time.  
+
+    The way this function should be used is if the set of data in hypos 
+    is close to the wrap point switch to the other option for wrap_point.
+    i.e. if the data are near the dateline switch them to 0 to 2*pi 
+    by setting wrap_point="greenwich".
+
+    :param hypos:  iterable of Hypocenter objects
+    :param wrap_point:  longitude always wraps either at the dateline 
+      or at 0 longitude.   If the input data is -pi to pi use "dateline".  
+      If the data are 0 to 2*pi use "greenwich".  Any other string 
+      will cause a ValueError exception to be thrown.   Both cases 
+      automatically handle inconsistent data mapping them into the 
+      expected range.   Note wrapping will not work, however, for 
+      longitude less than -pi or larger than 2*pi.  
     """
+    if wrap_point not in ["dateline","greenwich"]:
+        message="compute_centroid:  illegal value wrap_point={}\n".format(wrap_point)
+        message += "Must be either dateline or greenwich"
+        raise ValueError(message)
+    twopi = 2.0*np.pi
     centroid=Hypocenter()
     for k in hypos:
         h=hypos[k]
         centroid.lat += h.lat 
-        centroid.lon += h.lon 
+        lon = h.lon
+        if wrap_point=="dateline":
+            if lon > np.pi:
+                lon -= twopi
+        else: 
+            if lon < 0.0:
+                lon += twopi
+        centroid.lon += lon 
         centroid.depth += h.depth 
         centroid.time += h.time 
     n=len(hypos)
