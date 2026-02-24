@@ -42,7 +42,7 @@ def main(args=None):
         "pffile",
         action="store",
         type=str,
-        default="Telecluster.pf",
+        default="telecluster.pf",
         help="Set parameter file that sets up clustering geometry (default telecluster.pf)",
     )
     parser.add_argument(
