@@ -137,7 +137,7 @@ def compute_centroid(hypos,wrap_point="dateline"):
         h=hypos[k]
         centroid.lat += h.lat 
         lon = h.lon
-        if wrap_point=="dateline":
+        if wrap_point=="greenwich":
             if lon > np.pi:
                 lon -= twopi
         else: 
@@ -197,7 +197,8 @@ def telecluster(dbname,pfname="telecluster.pf",query={},othermd=[]):
                 hypos=cat2dict(catsubset)
                 # set wrap method carefully when near 0 or dateline 
                 glon = grid.lon(i,j)
-                if abs(glon)<np.radians(30.0):
+                # could use pi/2 here but clearer this way
+                if abs(glon)<np.radians(90.0):
                     wrap_point="greenwich"
                 else:
                     wrap_point="dateline"

@@ -39,7 +39,7 @@ def main(args=None):
     )
     parser.add_argument(
         "-pf",
-        "pffile",
+        "--pffile",
         action="store",
         type=str,
         default="telecluster.pf",
