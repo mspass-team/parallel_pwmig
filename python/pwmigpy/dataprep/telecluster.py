@@ -195,7 +195,14 @@ def telecluster(dbname,pfname="telecluster.pf",query={},othermd=[]):
             nthis=catsubset.size()
             if nthis>0:
                 hypos=cat2dict(catsubset)
-                centroid=compute_centroid(hypos)
+                # set wrap method carefully when near 0 or dateline 
+                glon = grid.lon(i,j)
+                if abs(glon)<np.radians(30.0):
+                    wrap_method="greenwich"
+                else:
+                    wrap_method="dateline"
+
+                centroid=compute_centroid(hypos,wrap_method=wrap_method)
                 doc=dict()
                 doc['gridname']=gridname
                 doc['hypocentroid']={'lat' : np.rad2deg(centroid.lat),
