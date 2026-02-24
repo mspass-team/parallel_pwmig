@@ -262,8 +262,10 @@ void load_numpy_data(pwmig::gclgrid::GCLscalarfield3d& fld,
         {
             case 0:
                 if(fld.n1 != Ntest) sizes_match=false;
+                break;
             case 1:
                 if(fld.n2 != Ntest) sizes_match=false;
+                break;
             case 2:
                 if(fld.n3 != Ntest) sizes_match=false;
         };
