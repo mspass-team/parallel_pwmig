@@ -133,8 +133,7 @@ def compute_centroid(hypos,wrap_point="dateline"):
         raise ValueError(message)
     twopi = 2.0*np.pi
     centroid=Hypocenter()
-    for k in hypos:
-        h=hypos[k]
+    for h in hypos:
         centroid.lat += h.lat 
         lon = h.lon
         if wrap_point=="greenwich":
@@ -149,6 +148,13 @@ def compute_centroid(hypos,wrap_point="dateline"):
     n=len(hypos)
     centroid.lat /= n
     centroid.lon /= n
+    # correct lon if necessary in vicinity of wrap point
+    if wrap_point=="greenwich":
+        if centroid.lon < 0.0:
+            centroid.lon += twopi
+    else:
+        if centroid.lon > np.pi:
+            centroid.lon -= twopi
     centroid.depth /= n
     centroid.time /=n
     return centroid 
