@@ -118,7 +118,8 @@ def compute_centroid(hypos,wrap_point="dateline"):
     i.e. if the data are near the dateline switch them to 0 to 2*pi 
     by setting wrap_point="greenwich".
 
-    :param hypos:  iterable of Hypocenter objects
+    :param hypos:  dictionary keyed by source_id of Hypocenter objects 
+      defining the group from which the centroid is to be computed.  
     :param wrap_point:  longitude always wraps either at the dateline 
       or at 0 longitude.   If the input data is -pi to pi use "dateline".  
       If the data are 0 to 2*pi use "greenwich".  Any other string 
@@ -133,7 +134,8 @@ def compute_centroid(hypos,wrap_point="dateline"):
         raise ValueError(message)
     twopi = 2.0*np.pi
     centroid=Hypocenter()
-    for h in hypos:
+    for key in hypos.keys():
+        h = hypos[key]
         centroid.lat += h.lat 
         lon = h.lon
         if wrap_point=="greenwich":
