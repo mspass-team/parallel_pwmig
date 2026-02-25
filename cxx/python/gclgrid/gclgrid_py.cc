@@ -186,7 +186,7 @@ py::array_t<double> extract_data_array(pwmig::gclgrid::GCLscalarfield3d& fld)
 }
 /* Reciprocal operation of extract_data_array.  Loads numpy array 
  * data in val array.  Returns a copy with the new data loaded.*/
-pwmig::gclgrid::GCLvectorfiled3d& load_numpy_data(pwmig::gclgrid::GCLvectorfield3d& fld, 
+pwmig::gclgrid::GCLvectorfield3d& load_numpy_data(pwmig::gclgrid::GCLvectorfield3d& fld, 
    const py::array_t<double>& d2load)
 {
     const ssize_t* shape_ptr = d2load.shape();
@@ -232,17 +232,15 @@ pwmig::gclgrid::GCLvectorfiled3d& load_numpy_data(pwmig::gclgrid::GCLvectorfield
         throw mspass::utility::MsPASSError(ss.str());
     }
     
-    /* Create a copy for return */
-    GCLvectorfield3d fret(fld);
     /* this fetches the raw pointer to the numpy array start */
     const double *dptr = d2load.data();
     /* use nbytes method instead of computing it from sizes*/
-    double *fldptr = &(fret.val[0][0][0][0]);
+    double *fldptr = &(fld.val[0][0][0][0]);
     std::memcpy(fldptr,dptr,d2load.nbytes());
-    return fret;
+    return fld;
 }
 /* Overloaded function for scalar data*/
-void load_numpy_data(pwmig::gclgrid::GCLscalarfield3d& fld, 
+pwmig::gclgrid::GCLscalarfield3d& load_numpy_data(pwmig::gclgrid::GCLscalarfield3d& fld, 
    const py::array_t<double>& d2load)
 {
     const ssize_t* shape_ptr = d2load.shape();
@@ -290,6 +288,7 @@ void load_numpy_data(pwmig::gclgrid::GCLscalarfield3d& fld,
     /* use nbytes method instead of computing it from sizes*/
     double *fldptr = &(fld.val[0][0][0]);
     std::memcpy(fldptr,dptr,d2load.nbytes());
+    return fld;
 }
 
 PYBIND11_MODULE(gclgrid, m) {
