@@ -27,7 +27,6 @@ def GCLdbsave_attributes(db, md, collection="GCLfielddata"):
 
     :return: id of inserted doc
     """
-    print("DEBUG:  type of args received=",type(db),type(md),type(collection))
     dbh = db[collection]
     # Here we always just blindly save all metadata attributes
     # assuming this is used only for GCL objects so there is not
@@ -151,7 +150,6 @@ def GCLdbsave(db, obj, collection="GCLfielddata",
                 message = 'GCLdbsave:  key=',k,' is defined in auxdata dict\nNot allowed because that is a keyword in the required parameters'
                 raise MsPASSError(message,'Fatal')
             md[k]=auxdata[k]
-    print("DEBUG:   type of args sent to GCLdbsave_attributes: ",type(db),type(md),type(collection))
     id = GCLdbsave_attributes(db, md, collection=collection)
     md['_id']=id
     return md
