@@ -60,8 +60,8 @@ class gridstacker_control:
         self.enable_source_cell_weighting = pf.get_bool("enable_cell_weighting")
         self.save_weight_data = pf.get_bool("save_weight_data")
         self.dir = pf.get_string("output_directory")
-        self.az_wt_power = pf.get_double("azimuthal_weighting_exponent")
-        self.az_wt_floor = pf.get_double("azimuthal_weighting_floor")
+        self.azwt_power = pf.get_double("azimuthal_weighting_exponent")
+        self.azwt_floor = pf.get_double("azimuthal_weighting_floor")
         self.binwt_power = pf.get_double("binned_weighting_exponent")
         self.binwt_floor = pf.get_double("binned_weighting_floor")
 def count_events_by_azimuth(db,iaz)->dict:
