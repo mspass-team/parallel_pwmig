@@ -288,14 +288,8 @@ def save_results(db,mastergrid,stack,sumwt,control,nametag_base,algorithm):
     """
     gclstack = GCLvectorfield3d(mastergrid,3)
     gclstack.name = nametag_base + "_stack_" + algorithm
-    print("Before running load_numpy_data")
-    print(type(gclstack),gclstack.name,gclstack.n1,gclstack.n2,gclstack.n3,gclstack.nv)
     gclstack = load_numpy_data(gclstack,stack)
-    print("After running load_numpy_data")
-    print(type(gclstack),gclstack.name,gclstack.n1,gclstack.n2,gclstack.n3,gclstack.nv)
     GCLdbsave(db,gclstack,dir=control.dir)
-    print("After save")
-    print(type(gclstack),gclstack.name,gclstack.n1,gclstack.n2,gclstack.n3,gclstack.nv)
     if control.save_weight_data:
         gclsumwt = GCLscalarfield3d(mastergrid)
         gclsumwt = load_numpy_data(gclsumwt,sumwt.data)
@@ -308,6 +302,7 @@ def gridstacker(doclist_or_cursor,
                 methods=["average","azimuth_weighting","bin_weighting"],
                 output_base_name="stack",
                 pfname="gridstacker.pf",
+                verbose=False,
                 ):
     """
     Driver function to do the stack phase of prestack migration with pwmig.
@@ -400,7 +395,8 @@ def gridstacker(doclist_or_cursor,
                 message = "gridstacker:  document number {} retrieved from GCLfielddata collection is missing required key='telecluster_id'\n".format(count)
                 message += "That key is required for azimuthal or binned weighting pwmig/pwstack. "
                 raise ValueError(message)
-        print("DEBUG:  Loading image with name=",doc['name'])
+        if verbose:
+            print("Loadig grid with name=",doc['name'])
         fdata = GCLdbread(db,doc)
         data_array = extract_data_array(fdata)
         if count==0:
@@ -410,8 +406,9 @@ def gridstacker(doclist_or_cursor,
                 message = "Size mismatch of inputs from doclist - check query that generated list and try again"
                 raise RuntimeError(message)
         arraylist.append(data_array)
-        print(f"{count} grids loaded")
-        report_memory_use()
+        if verbose:
+            print(f"{count} grids loaded")
+            report_memory_use()
         count += 1
     if require_weights:
         if "azimuth_weighting" in methods:
@@ -421,15 +418,14 @@ def gridstacker(doclist_or_cursor,
         if "bin_weighting" in methods:
             binwts = source_cell_weights(db,xref,control.binwt_power,control.binwt_floor)
     for alg in methods:
+        if verbose:
+            print("Computing stack with algorithm=",alg)
         match alg:
             case "average":
-                print("DEBUG:  string to runs imple stack")
                 stack,sumwt = stack_data(arraylist, control.solid_angle_cutoff)
             case "azimuth_weighting":
-                print("DEBUG:  trying to run azimuthal weighted stack")
                 stack,sumwt = stack_data(arraylist, control.solid_angle_cutoff, azwts)
             case "bin_weighting":
-                print("DEBUG:  trying to run bin weight stack")
                 stack,sumwt = stack_data(arraylist, control.solid_angle_cutoff, binwts)
             case _:
                 print("Unsupported key specified for method arg=",alg)
