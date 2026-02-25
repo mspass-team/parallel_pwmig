@@ -290,7 +290,7 @@ def save_results(db,mastergrid,stack,sumwt,control,nametag_base,algorithm):
     gclstack.name = nametag_base + "_stack_" + algorithm
     print("Before running load_numpy_data")
     print(type(gclstack),gclstack.name,gclstack.n1,gclstack.n2,gclstack.n3,gclstack.nv)
-    load_numpy_data(gclstack,stack)
+    gclstack = load_numpy_data(gclstack,stack)
     print("After running load_numpy_data")
     print(type(gclstack),gclstack.name,gclstack.n1,gclstack.n2,gclstack.n3,gclstack.nv)
     GCLdbsave(db,gclstack,dir=control.dir)
@@ -298,13 +298,10 @@ def save_results(db,mastergrid,stack,sumwt,control,nametag_base,algorithm):
     print(type(gclstack),gclstack.name,gclstack.n1,gclstack.n2,gclstack.n3,gclstack.nv)
     if control.save_weight_data:
         gclsumwt = GCLscalarfield3d(mastergrid)
-        load_numpy_data(gclsumwt,sumwt.data)
+        gclsumwt = load_numpy_data(gclsumwt,sumwt.data)
         gclsumwt.name = nametag_base + "_sumwt_" + algorithm
         GCLdbsave(db,gclsumwt,dir=control.dir)
                                 
-    
-    
-        
 def gridstacker(doclist_or_cursor,
                 db,
                 control=None,
