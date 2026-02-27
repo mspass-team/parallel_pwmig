@@ -15,7 +15,17 @@ from pwmigpy.ccore.gclgrid import (GCLgrid3d,
                                    )
 from pwmigpy.db.database import GCLdbread,GCLdbsave
 from mspasspy.ccore.utility import AntelopePf
-from mspasspy.util.db_utils import fetch_dbhandle
+
+import psutil
+import os
+
+def report_memory_use():
+    """
+    Simple little function to print a report of process memory use
+    at a particular point in the code.
+    """
+    process = psutil.Process(os.getpid())
+    print(f"Current memory usage: {process.memory_info().rss / 1024**2:.2f} MB")
 
 class gridstacker_control:
     """
@@ -50,8 +60,8 @@ class gridstacker_control:
         self.enable_source_cell_weighting = pf.get_bool("enable_cell_weighting")
         self.save_weight_data = pf.get_bool("save_weight_data")
         self.dir = pf.get_string("output_directory")
-        self.az_wt_power = pf.get_double("azimuthal_weighting_exponent")
-        self.az_wt_floor = pf.get_double("azimuthal_weighting_floor")
+        self.azwt_power = pf.get_double("azimuthal_weighting_exponent")
+        self.azwt_floor = pf.get_double("azimuthal_weighting_floor")
         self.binwt_power = pf.get_double("binned_weighting_exponent")
         self.binwt_floor = pf.get_double("binned_weighting_floor")
 def count_events_by_azimuth(db,iaz)->dict:
@@ -220,7 +230,7 @@ def normalize_by_solid_angle(imagevolume,cutoff)->tuple:
     omega) zeroed.  Corresponding cells have the vectors in that cell 
     zeroed on the return in component 0.
     """
-    image = imagevolume[:,:,:,0:2].copy()
+    image = imagevolume[:,:,:,0:3].copy()
     omega = imagevolume[:,:,:,3].copy()
     # not component 4 of each data vector contains the sume of grt weights 
     # they are applied to each 3c vector in the C++ PWMIGfielddata.accumulate 
@@ -232,7 +242,8 @@ def normalize_by_solid_angle(imagevolume,cutoff)->tuple:
     # this zeros the masked values
     omega_inv[omega_inv.mask] = 0.0
     # now apply omega_inv - works because zeroed masked values
-    for k in range(N4):
+    # range is 0,1,2 because image extracts only teh 3c vector data
+    for k in range(3):
         image[:,:,:,k] = image[:,:,:,k] * omega_inv.data
     return image,omega_inv
 
@@ -260,7 +271,8 @@ def stack_data(imagelist,cutoff,weights=None):
         if weighted_stack:
             img *= weights[i]
             omega_inv *= weights[i] 
-        img /= omega_inv 
+        for k in range(3):
+            img[:,:,:,k] *= omega_inv
         sum_images += img 
         sumwts += omega_inv.data
     # normally testibng for zero like this would be problematic but it 
@@ -276,23 +288,21 @@ def save_results(db,mastergrid,stack,sumwt,control,nametag_base,algorithm):
     """
     gclstack = GCLvectorfield3d(mastergrid,3)
     gclstack.name = nametag_base + "_stack_" + algorithm
-    load_numpy_data(gclstack,stack)
-    GCLdbsave(gclstack,db,dir=control.dir)
+    gclstack = load_numpy_data(gclstack,stack)
+    GCLdbsave(db,gclstack,dir=control.dir)
     if control.save_weight_data:
         gclsumwt = GCLscalarfield3d(mastergrid)
-        load_numpy_data(gclsumwt,sumwt.data)
+        gclsumwt = load_numpy_data(gclsumwt,sumwt.data)
         gclsumwt.name = nametag_base + "_sumwt_" + algorithm
-        GCLdbsave(gclsumwt,db,dir=control.dir)
+        GCLdbsave(db,gclsumwt,dir=control.dir)
                                 
-    
-    
-        
 def gridstacker(doclist_or_cursor,
-                dbname_or_handle,
-                control,
-                methods=["simple","azimuth_weighting","bin_weighting"],
+                db,
+                control=None,
+                methods=["average","azimuth_weighting","bin_weighting"],
                 output_base_name="stack",
                 pfname="gridstacker.pf",
+                verbose=False,
                 ):
     """
     Driver function to do the stack phase of prestack migration with pwmig.
@@ -342,12 +352,14 @@ def gridstacker(doclist_or_cursor,
       The list is tiny compared to size of any expected image volume so 
       use of a list instead of cursor is wise to reduce the chances of 
       a cursor timeout.  
-    :param dbname_or_handle:  what the name suggests. It can be either 
-      just a db name or an instance of a `mspasspy.db.Database` object.  
-      In either case it must point at the database where pwmig saved it's output. 
+    :param dbname_or_handle: instance of mspasspy.db.Database with 
+      pwmig data stored in the GCLfield collection.   Note this function 
+      is currently serial so we use the regular client. 
     :param control:  instance of gridstacker_control defined in this module.  
       It is a data structure containing the control parameters for this 
-      algorithm.  
+      algorithm.  If set None (default) the pfname argument is used to 
+      attempt to construct this data structure (object) from the pf 
+      file defined by pfname.
     :param methods:  list of keywords defining which algorithm(s) to run.  
       Currently one or more of the following:  "average", "azimuth_weighting", 
       or "bin_weighting".   Default is all three which means all three will 
@@ -361,13 +373,15 @@ def gridstacker(doclist_or_cursor,
     :param pfname:  file name of "pf-file" containing control parameters 
       to drive this function.   Contents are loaded into a 
       gridstacker_control object defined at the top of this module.  
+      Default is "gridstacker.pf" and assumes a file by that name exists 
+      in the current directory and has the set of required parameters.
     """
-    control = gridstacker_control(pfname)
-    if len(methods)==1 and "simple" in methods:
+    if control is None:
+        control = gridstacker_control(pfname)
+    if len(methods)==1 and "average" in methods:
         require_weights=False
     else:
         require_weights = True
-    db = fetch_dbhandle(dbname_or_handle)
     # large memory model - may want to convert to dask array to reduce memory footprint
     count = 0
     arraylist=list()
@@ -381,6 +395,8 @@ def gridstacker(doclist_or_cursor,
                 message = "gridstacker:  document number {} retrieved from GCLfielddata collection is missing required key='telecluster_id'\n".format(count)
                 message += "That key is required for azimuthal or binned weighting pwmig/pwstack. "
                 raise ValueError(message)
+        if verbose:
+            print("Loadig grid with name=",doc['name'])
         fdata = GCLdbread(db,doc)
         data_array = extract_data_array(fdata)
         if count==0:
@@ -390,6 +406,9 @@ def gridstacker(doclist_or_cursor,
                 message = "Size mismatch of inputs from doclist - check query that generated list and try again"
                 raise RuntimeError(message)
         arraylist.append(data_array)
+        if verbose:
+            print(f"{count} grids loaded")
+            report_memory_use()
         count += 1
     if require_weights:
         if "azimuth_weighting" in methods:
@@ -399,6 +418,8 @@ def gridstacker(doclist_or_cursor,
         if "bin_weighting" in methods:
             binwts = source_cell_weights(db,xref,control.binwt_power,control.binwt_floor)
     for alg in methods:
+        if verbose:
+            print("Computing stack with algorithm=",alg)
         match alg:
             case "average":
                 stack,sumwt = stack_data(arraylist, control.solid_angle_cutoff)
@@ -412,3 +433,4 @@ def gridstacker(doclist_or_cursor,
                 print("Nonfatal - trying any remaining values for methods list")
                 continue
         save_results(db,mastergrid,stack,sumwt,control,output_base_name,alg)
+        

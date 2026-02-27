@@ -106,23 +106,57 @@ def cat2dict(evcat):
         hypos[id]=h
         evcat.advance(1)
     return hypos
-def compute_centroid(hypos):
+def compute_centroid(hypos,wrap_point="dateline"):
     """
     Takes dict returned by function above and computes the hypocentroid 
     of that contents as a Hypocenter object.   Note the lat and lon 
     are in original units (radians here) and time is a (normnally) meaningless 
     mean origin time.  
+
+    The way this function should be used is if the set of data in hypos 
+    is close to the wrap point switch to the other option for wrap_point.
+    i.e. if the data are near the dateline switch them to 0 to 2*pi 
+    by setting wrap_point="greenwich".
+
+    :param hypos:  dictionary keyed by source_id of Hypocenter objects 
+      defining the group from which the centroid is to be computed.  
+    :param wrap_point:  longitude always wraps either at the dateline 
+      or at 0 longitude.   If the input data is -pi to pi use "dateline".  
+      If the data are 0 to 2*pi use "greenwich".  Any other string 
+      will cause a ValueError exception to be thrown.   Both cases 
+      automatically handle inconsistent data mapping them into the 
+      expected range.   Note wrapping will not work, however, for 
+      longitude less than -pi or larger than 2*pi.  
     """
+    if wrap_point not in ["dateline","greenwich"]:
+        message="compute_centroid:  illegal value wrap_point={}\n".format(wrap_point)
+        message += "Must be either dateline or greenwich"
+        raise ValueError(message)
+    twopi = 2.0*np.pi
     centroid=Hypocenter()
-    for k in hypos:
-        h=hypos[k]
+    for key in hypos.keys():
+        h = hypos[key]
         centroid.lat += h.lat 
-        centroid.lon += h.lon 
+        lon = h.lon
+        if wrap_point=="greenwich":
+            if lon > np.pi:
+                lon -= twopi
+        else: 
+            if lon < 0.0:
+                lon += twopi
+        centroid.lon += lon 
         centroid.depth += h.depth 
         centroid.time += h.time 
     n=len(hypos)
     centroid.lat /= n
     centroid.lon /= n
+    # correct lon if necessary in vicinity of wrap point
+    if wrap_point=="greenwich":
+        if centroid.lon < 0.0:
+            centroid.lon += twopi
+    else:
+        if centroid.lon > np.pi:
+            centroid.lon -= twopi
     centroid.depth /= n
     centroid.time /=n
     return centroid 
@@ -169,7 +203,14 @@ def telecluster(dbname,pfname="telecluster.pf",query={},othermd=[]):
             nthis=catsubset.size()
             if nthis>0:
                 hypos=cat2dict(catsubset)
-                centroid=compute_centroid(hypos)
+                # set wrap method carefully when near 0 or dateline 
+                glon = grid.lon(i,j)
+                # could use pi/2 here but clearer this way
+                if abs(glon)<np.radians(90.0):
+                    wrap_point="greenwich"
+                else:
+                    wrap_point="dateline"
+                centroid=compute_centroid(hypos,wrap_point=wrap_point)
                 doc=dict()
                 doc['gridname']=gridname
                 doc['hypocentroid']={'lat' : np.rad2deg(centroid.lat),
