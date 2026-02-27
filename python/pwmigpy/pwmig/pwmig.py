@@ -1202,15 +1202,10 @@ def migrate_event(mspass_client, dbname, sid, pf, output_image_name,
         # scatter returns after the data is at the scheduler but not 
         # all the workers
         dask_client.wait_for_workers(num_workers,timeout=300)
-        print("DEBUG:  starting to broadcast common data")
         f_parent = dask_client.scatter(parent,broadcast=True)
-        print("Broadcasting incident wave time grid")
         f_TPfield = dask_client.scatter(TPfield,broadcast=True)
-        print("Broadcasting slowness vector matrix")
         f_svm0 = dask_client.scatter(svm0,broadcast=True)
-        print("Tryint to broadcast empty Us3d container - likely problem")
         f_Us3d = dask_client.scatter(Us3d,broadcast=True)
-        print("Finished - trying to broadcast 1d velocity models")
         f_Vp1d = dask_client.scatter(Vp1d,broadcast=True)
         f_Vs1d = dask_client.scatter(Vs1d,broadcast=True)
         # this one isn't that large but probably better pushed this way
