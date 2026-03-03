@@ -175,10 +175,11 @@ def pwstack_dataset(
     pfname="pwstack.pf",
     wf_query=None,
     data_tag="pseudosource_stacks",
-    pseudosource_stacker_algorithm="weighted_stack",
+    pseudosource_stacker_algorithm="weighted_average",
     source_collection="telecluster",
     parallel=True,
     initialize_workers=True,
+    storage_mode="file",
     output_data_tag="pwstack_data",
     outdir="pwstack_output",
     verbose=False,
@@ -268,7 +269,7 @@ def pwstack_dataset(
       will cause programs if passed downstream to pwmig.
 
     """
-    valid_algorithms = ["average", "median", "weighted_stack", "robust_dbxcor"]
+    valid_algorithms = ["average", "median", "weighted_average", "robust_dbxcor"]
     # handle wf query complexity feature
     if wf_query is None:
         wf_query = {"data_tag": data_tag}
@@ -299,7 +300,7 @@ def pwstack_dataset(
         wf_query=wf_query,
         source_collection=source_collection,
         verbose=verbose,
-        storage_mode="file",
+        storage_mode=storage_mode,
         outdir=outdir,
         run_serial=(not parallel),
         output_data_tag=output_data_tag,
