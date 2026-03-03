@@ -35,6 +35,7 @@ from mspasspy.ccore.utility import MsPASSError,ErrorSeverity
 from mspasspy.util.seismic import number_live
 from mspasspy.db.normalize import ObjectIdMatcher,normalize
 from mspasspy.db.database import Database
+from mspasspy.util.db_utils import fetch_dbhandle
 
 from obspy.taup import TauPyModel
 from obspy.geodetics import gps2dist_azimuth,kilometers2degrees
@@ -470,7 +471,13 @@ def read_ensemble(querydata,
                     message += "Epicentral distance(deg)={}".format(dist)
                     d.elog.log_error("pwstack",message,ErrorSeverity.Invalid)
     return d
-def save_ensemble(ens, dbname_or_handle, data_tag, storage_mode="gridfs", outdir=None):
+def save_ensemble(ens, 
+                  dbname_or_handle, 
+                  data_tag, 
+                  storage_mode="gridfs", 
+                  outdir=None,
+                  verbose=False,
+                  ):
     """
     Writer function for ensembles created by pwstack.   It is largely a 
     wrapper around db.save_data to handle:
@@ -506,16 +513,13 @@ def save_ensemble(ens, dbname_or_handle, data_tag, storage_mode="gridfs", outdir
       at least, will create the directory if it does not yet exist. 
     """
     if ens.dead():
+        if verbose and "pwmig_source_id" in ens:
+            print("pwmig_source_id of dead ensemble=",ens["pwmig_source_id"])
         return None
-    if isinstance(dbname_or_handle,str):
-        worker = ddist.get_worker()
-        dbclient = worker.data["dbclient"]
-        db = dbclient.get_database(dbname_or_handle)
-    elif isinstance(dbname_or_handle,Database):
-        db = dbname_or_handle
-    else:
-        message = "read_ensembles:   illegal type for arg1={}\n".format(type(dbname_or_handle))
-        message += "Must be str defining a db name or a Database object"
+    if verbose and len(ens.member)==0:
+        pwsid=ens["pwmig_source_id"]
+        ddist.print(f"save_ensemble:  pwstack produced no output for pwmig_source_id={pwsid}")
+    db = fetch_dbhandle(dbname_or_handle)
     if storage_mode=="file":
         if outdir:
             odir=outdir
@@ -730,7 +734,8 @@ def pwstack(db,pf,source_query=None,
                                         db,
                                           output_data_tag,
                                             storage_mode=storage_mode,
-                                              outdir=outdir)
+                                              outdir=outdir,
+                                                verbose=verbose)
                 if verbose:
                     print(sdret)
         else:
@@ -761,6 +766,7 @@ def pwstack(db,pf,source_query=None,
                                   output_data_tag,
                                       storage_mode=storage_mode,
                                           outdir=outdir,
+                                              verbose=verbose,
                                 )
             sdret = mybag.compute()
         if verbose:
