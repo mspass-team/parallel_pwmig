@@ -18,7 +18,7 @@ def pwmig_dataset(
     dbname,
     pfname="pwmig.pf",
     source_collection="telecluster",
-    pwstack_data_tag="pseudostation_stacks",
+    pwstack_data_tag="pwstack_data",
     base_fieldname="pwmigdata",
     outdir=None,
     restart=False,
