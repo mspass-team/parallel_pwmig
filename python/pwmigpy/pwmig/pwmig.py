@@ -5,6 +5,7 @@ import pickle
 import fcntl
 import os
 import copy
+import psutil
 
 
 import dask.distributed as ddist
@@ -500,6 +501,7 @@ def _migrate_component_parallel(
     control,
     verbose=False,
     file_rootpath=None,
+    monitor_memory=False,
 ):
     """
     This small function is mostly a wrapper for the C++ function
@@ -555,6 +557,9 @@ def _migrate_component_parallel(
     cursor = db.wf_Seismogram.find(query)
     pwensemble = db.read_data(cursor, collection="wf_Seismogram")
     cursor.close()
+    if monitor_memory:
+        vm = psutil.virtual_memory()
+        ddist.print(f"Available worker memory = {vm.available / 1e9:.2f} GB after loading data with query={query}")
     t1 = time.time()
     pwdgrid = migrate_component(
         pwensemble, parent, TPfield, VPsvm, Us3d, Vp1d, Vs1d, control
@@ -1038,6 +1043,7 @@ def migrate_event(
     minimum_data=10000,
     verbose=False,
     dryrun=False,
+    monitor_memory=False,
 ):
     """
     Top level map function for pwmig.   pwmig is a "prestack" method
@@ -1410,6 +1416,7 @@ def migrate_event(
                     f_Vs1d,
                     f_control,
                     file_rootpath=root_scratch_filename,
+                    monitor_memory=monitor_memory,
                 )
                 futures_list.append(f)
                 i_q += 1
