@@ -318,11 +318,18 @@ def save_results(db, mastergrid, stack, sumwt, control, nametag_base, algorithm)
     """ """
     gclstack = GCLvectorfield3d(mastergrid, 3)
     gclstack.name = nametag_base + "_" + algorithm
-    gclstack = load_numpy_data(gclstack, stack)
+    # calling the filled method to zero undefined values.   
+    #TODO:  probably should save the mask. For now it could be extracted from 
+    # the weight array saved below if it is saved
+    gclstack = load_numpy_data(gclstack, stack.filled(0.0))
     GCLdbsave(db, gclstack, dir=control.dir)
     if control.save_weight_data:
         gclsumwt = GCLscalarfield3d(mastergrid)
-        gclsumwt = load_numpy_data(gclsumwt, sumwt.data)
+        # note since weights are alwasy >= 0 setting undefined values negative 
+        # could be used to defined masked values.
+        # TODO:   not implemented.  Needs design for how to interact with 
+        # paraview
+        gclsumwt = load_numpy_data(gclsumwt, sumwt.data.filled(-1.0))
         gclsumwt.name = nametag_base + "_sumwt_" + algorithm
         GCLdbsave(db, gclsumwt, dir=control.dir)
 
