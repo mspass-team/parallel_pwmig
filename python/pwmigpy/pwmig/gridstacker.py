@@ -317,7 +317,7 @@ def stack_data(imagelist, cutoff, weights=None):
 def save_results(db, mastergrid, stack, sumwt, control, nametag_base, algorithm):
     """ """
     gclstack = GCLvectorfield3d(mastergrid, 3)
-    gclstack.name = nametag_base + "_stack_" + algorithm
+    gclstack.name = nametag_base + "_" + algorithm
     gclstack = load_numpy_data(gclstack, stack)
     GCLdbsave(db, gclstack, dir=control.dir)
     if control.save_weight_data:
