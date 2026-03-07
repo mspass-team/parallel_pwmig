@@ -208,23 +208,6 @@ def azimuth_weights(db, tcidlist, power=0.5, floor=0.05) -> np.ndarray:
     return weights
 
 
-def load_numpy_array(gclf, npdata) -> GCLvectorfield3d:
-    """
-    loads grid data in npdata into val array of gclf with no safeties.
-    This function should eventually be created in C++ with pybind11
-    bindings.
-    """
-    gclfout = GCLvectorfield3d(gclf)
-    vtmp = DoubleVector(gclf.nv)
-    for i in range(gclf.n1):
-        for j in range(gclf.n2):
-            for k in range(gclf.n3):
-                for l in range(gclf.nv):
-                    vtmp[l] = npdata(i, j, k, l)
-                gclfout.set_value(vtmp, i, j, k)
-    return gclfout
-
-
 def normalize_by_solid_angle(imagevolume, cutoff) -> tuple:
     """
     The raw outputs of pwmig needs to be normalized by the range of
@@ -313,15 +296,29 @@ def stack_data(imagelist, cutoff, weights=None):
         sum_images[:, :, :, k] /= sumwt_masked
     return sum_images, sumwt_masked
 
+def apply_mask(imagedata,sumwt,nullvalue=0.0):
+    """
+    Apply the mask defined in the 3 array sumwt to the components of the 
+    4d array imagedata.  i.e. the mask is applied in a loop over the last 
+    index of imagedata.   Masked valued are set to nullvalue using the 
+    filled method.  Returns imagegrid with masked values set to nullvalue.
+    """
+    # could hard code this but this does this right 
+    [N1,N2,N3,NV] = imagedata.shape
+    for k in range(NV):
+        d = np.ma.masked_array(imagedata[:,:,:,k],mask=sumwt.mask)
+        imagedata[:,:,:,k] = d.filled(nullvalue)
+    return imagedata
 
 def save_results(db, mastergrid, stack, sumwt, control, nametag_base, algorithm):
     """ """
     gclstack = GCLvectorfield3d(mastergrid, 3)
     gclstack.name = nametag_base + "_" + algorithm
+    stack = apply_mask(stack,sumwt)
     # calling the filled method to zero undefined values.   
     #TODO:  probably should save the mask. For now it could be extracted from 
-    # the weight array saved below if it is saved
-    gclstack = load_numpy_data(gclstack, stack.filled(0.0))
+    # the weight array saved below if it is 
+    gclstack=load_numpy_data(gclstack,stack)
     GCLdbsave(db, gclstack, dir=control.dir)
     if control.save_weight_data:
         gclsumwt = GCLscalarfield3d(mastergrid)
