@@ -25,6 +25,7 @@ def pwmig_dataset(
     minimum_data=10000,
     verbose=False,
     initialize_workers=True,
+    monitor_memory=False,
 ):
     """
     Driver to process all output from pwstack to produce a suite of
@@ -160,6 +161,7 @@ def pwmig_dataset(
             minimum_data=minimum_data,
             verbose=verbose,
             base_query=base_query,
+            monitor_memory=monitor_memory,
         )
         if imagedata is not None:
             auxdata = {"source_collection": source_collection, idkey: sid}
