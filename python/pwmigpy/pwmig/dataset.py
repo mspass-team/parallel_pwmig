@@ -18,13 +18,14 @@ def pwmig_dataset(
     dbname,
     pfname="pwmig.pf",
     source_collection="telecluster",
-    pwstack_data_tag="pseudostation_stacks",
+    pwstack_data_tag="pwstack_data",
     base_fieldname="pwmigdata",
     outdir=None,
     restart=False,
     minimum_data=10000,
     verbose=False,
     initialize_workers=True,
+    monitor_memory=False,
 ):
     """
     Driver to process all output from pwstack to produce a suite of
@@ -160,6 +161,7 @@ def pwmig_dataset(
             minimum_data=minimum_data,
             verbose=verbose,
             base_query=base_query,
+            monitor_memory=monitor_memory,
         )
         if imagedata is not None:
             auxdata = {"source_collection": source_collection, idkey: sid}
@@ -175,10 +177,11 @@ def pwstack_dataset(
     pfname="pwstack.pf",
     wf_query=None,
     data_tag="pseudosource_stacks",
-    pseudosource_stacker_algorithm="weighted_stack",
+    pseudosource_stacker_algorithm="weighted_average",
     source_collection="telecluster",
     parallel=True,
     initialize_workers=True,
+    storage_mode="file",
     output_data_tag="pwstack_data",
     outdir="pwstack_output",
     verbose=False,
@@ -268,7 +271,7 @@ def pwstack_dataset(
       will cause programs if passed downstream to pwmig.
 
     """
-    valid_algorithms = ["average", "median", "weighted_stack", "robust_dbxcor"]
+    valid_algorithms = ["average", "median", "weighted_average", "robust_dbxcor"]
     # handle wf query complexity feature
     if wf_query is None:
         wf_query = {"data_tag": data_tag}
@@ -299,7 +302,7 @@ def pwstack_dataset(
         wf_query=wf_query,
         source_collection=source_collection,
         verbose=verbose,
-        storage_mode="file",
+        storage_mode=storage_mode,
         outdir=outdir,
         run_serial=(not parallel),
         output_data_tag=output_data_tag,
