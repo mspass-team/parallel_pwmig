@@ -1,0 +1,9 @@
+solid_angle_cutoff 0.1
+clip_level 5.0    # note the actual clip level is this value times the mad of each image value
+enable_cell_weighting true
+save_weight_data false
+output_directory fielddata
+azimuthal_weighting_exponent 0.5
+azimuthal_weighting_floor 0.1
+binned_weighting_exponent 0.5
+binned_weighting_floor 0.1
