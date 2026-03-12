@@ -35,7 +35,7 @@ depth_padding_multiplier 1.2
 source_collection telecluster
 parallel true
 # can be a number or auto.  If auto twice number of workers
-sliding_window_size 100
+sliding_window_size auto
 # note when save_components is false accumulation is serial in driver (slow)
 # even when running parallel.   When true and parallel accumulation is 
 # done by reading data from scratch files
