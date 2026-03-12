@@ -490,7 +490,8 @@ def gridstacker(
             print("Loadig grid with name=", doc["name"])
         fdata = GCLdbread(db, doc)
         data_array = extract_data_array(fdata)
-        print("Largest value in array=", np.max(data_array))
+        if verbose:
+            print("Largest value in array=", np.max(data_array))
         if count == 0:
             mastergrid = GCLgrid3d(fdata)
         else:
@@ -508,13 +509,23 @@ def gridstacker(
         count += 1
     if require_weights:
         if "azimuth_weighting" in methods:
-            print("using azimuth weighting method")
-            report_counts(db)
             azwts = azimuth_weights(db, xref, control.azwt_power, control.azwt_floor)
+            if verbose:
+                print("using azimuth weighting method")
+                report_counts(db)
+                print("azimuth_index weight")
+                for i in range(len(azwts)):
+                    print(i,azwts[i])
         if "bin_weighting" in methods:
             binwts = source_cell_weights(
                 db, xref, control.binwt_power, control.binwt_floor
             )
+            if verbose:
+                i=0
+                print("telecluster_id weight")
+                for tcid in xref:  # xref is a dict keyed by telecluster_id
+                    print(tcid,binwts[i])
+                    i += 1
     for alg in methods:
         if verbose:
             print("Computing stack with algorithm=", alg)
