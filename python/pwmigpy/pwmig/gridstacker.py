@@ -13,7 +13,6 @@ from pwmigpy.ccore.gclgrid import (
     GCLscalarfield3d,
     extract_data_array,
     load_numpy_data,
-    DoubleVector,
 )
 from pwmigpy.db.database import GCLdbread, GCLdbsave
 from mspasspy.ccore.utility import AntelopePf
@@ -254,28 +253,21 @@ def normalize_by_solid_angle(imagevolume, cutoff) -> tuple:
     [N1, N2, N3, N4] = imagevolume.shape
     omega_inv = np.ma.masked_less(omega, cutoff)
     # combine with above mask - works as mask is a logical array
-    #print("Number of masked values in omega_inv.mask=",np.ma.count_masked(omega_inv))
-    #print("Number of masked values defined for imgmask (NaNs)=",imgmask.sum())
     combined_mask = omega_inv.mask | imgmask
     omega_inv.mask = combined_mask    # if this works this should be shortened
-    #print("Number of masked values defined for combined masks=",omega_inv.mask.sum())
     omega_inv = 1.0 / omega_inv  # safely computes 1/sum(omega) values
-    #print("Number of masked values after converting to inverse=",omega_inv.mask.sum())
-    # this returns a regular array with the masked values swet to 0
+    # this returns a regular array with the masked values set to 0
+    # helpful to assure null data cells are returned as zeros
+    # note teh mask of omega_inv provides unambiguous null definition
     scaling_matrix = omega_inv.filled(0.0)
     # now apply scaling_matrix - works because zeroed masked values
     # range is 0,1,2 because image extracts only teh 3c vector data
-    nancount = np.isnan(image).sum()
-    #print("Before scaling loop number of NaNs in image array=",nancount)
     for k in range(3):
         image[:, :, :, k] = image[:, :, :, k] * scaling_matrix
-    nancount = np.isnan(image).sum()
-    #print("After scaling loop number of NaNs in image array=",nancount)
-    #print("Number of masked values in omega_inv returned=",omega_inv.mask.sum())
     return image, omega_inv
 
 
-def stack_data(imagelist, cutoff, clip_level, weights=None):
+def stack_data(imagelist, cutoff, clip_level, weights=None, verbose=False):
     """
     Stacks data with optional weights in imagelist.  
     """
@@ -296,68 +288,61 @@ def stack_data(imagelist, cutoff, clip_level, weights=None):
     [N1, N2, N3, NV] = imagelist[0].shape
     sum_images = np.zeros(shape=[N1, N2, N3, 3])
     sumwts = np.zeros(shape=[N1, N2, N3])
-    print("Image volume number of components=",N1*N2*N3*NV)
+    if verbose:
+        print("Image volume number of components=",N1*N2*N3*NV)
     for i in range(len(imagelist)):
         nancount=np.isnan(imagelist[i]).sum()
-        if nancount>0:
+        if verbose and nancount>0:
             print(f"Image number {i} has {nancount} NaN values")
             for k in range(NV):
                 x=imagelist[i][:,:,:,k]
                 c=np.isnan(x).sum()
                 print(f"Number of NaNs in component {k}={c}")
         img, omega_inv = normalize_by_solid_angle(imagelist[i], cutoff)
-        print(i,np.max(imagelist[i]),np.max(img),np.max(omega_inv))
-        # this is debug scaffoldng - remove when it shows above worked
-        nancount=np.isnan(img).sum()
-        if nancount>0:
-            print("WARNING:  normalize_by_solid_angle did not remove al NaNs.  ",nancount," are still in image ",i)
+        if verbose:
+            nmasked=omega_inv.mask.sum()
+            mask_fraction = nmasked/img.size
+            print(f"Fraction of image number {i} masked in nbormalize_by_solid_angle function={mask_fraction}")
+    
         # form a matrix of 1s where the data are valid and 0s where not
         # note normalize_by_solid angle already sets invalid values of
         # omega_inv to 0.   Here we only need to change all valid values
         # to 1 - very obscure syntax with the python not operator on the mask
         wtmatrix=(~omega_inv.mask).astype(float)
+        # simple way to apply a weight to all values is to scale wtmagtrix
         if weighted_stack:
             img *= weights[i]
             wtmatrix *= weights[i]
         madlist=list()
         madavg = 0.0
         for k in range(3):
-            #print("Number of masked values in omega_inv sent to constructor=",omega_inv.mask.sum())
             # make a regular array with NaNs in mask to allow computing mad correctly
             dtmp = np.ma.masked_array(img[:,:,:,k],mask=omega_inv.mask)
-            #print("Debug - dtmp total size=",dtmp.size)
             dtmp = dtmp.filled(np.nan)
             nancount = np.isnan(dtmp).sum()
-            #print("dtmp number nans after calling filled=",nancount)
             dtmp=dtmp.flatten()
             nancount = np.isnan(dtmp).sum()
-            #print("dtmp number of nans after flatten called=",nancount)
             mad = scipy.stats.median_abs_deviation(dtmp, nan_policy="omit")
             madlist.append(mad)
             madavg += mad
         madavg /= 3.0
-        #print("Component amplitude mad values=",madlist)
-        #print("Average used for clipping=",madavg)
         clip_value = clip_level*madavg
+        if verbose:
+            print(f"Clipping image {i} at level={clip_level}")
         img = np.clip(img,-clip_value,clip_value)
         sum_images += img
-        #print("max and min of sum now=",np.max(sum_images),np.min(sum_images))
         sumwts += wtmatrix
     # normally testing for zero like this would be problematic but it
     # will not because invalid data are always created as sums of zeros
     # that always yield float zeros
     sumwt_masked = np.ma.masked_equal(sumwts, 0.0)
-    #print("Number of masked values in final sumwt matrix=",sumwt_masked.mask.sum())
     #nsmall=(sumwt_masked<0.1).sum()
-    #print("Number remaining smaller than 0.1",nsmall)
-    #print("Max and min of stack before scaling=",np.max(sum_images),np.min(sum_images))
     for k in range(3):
         # This construct is needed because the / operator on numpy 
         # arrays ignores a mask.   The parenthesis exploit the fact the mask 
         # is retained so when the filled method is applied to the result it 
         # zeros all masked values defined by sumwt_masked in lhs  
         sum_images[:,:,:,k] = (sum_images[:, :, :, k] / sumwt_masked).filled(0.0)
-    #print("max and min of stacked image=",np.max(sum_images),np.min(sum_images))
     return sum_images, sumwt_masked
 
 def apply_mask(imagedata,masker,nullvalue=0.0):
@@ -541,4 +526,8 @@ def gridstacker(
                 print("See docstring for allowed options")
                 print("Nonfatal - trying any remaining values for methods list")
                 continue
+        print("Finished stacking with method=",alg)
+        number_masked=sumwt.mask.sum()
+        masked_fraction = number_masked/stack.size
+        print("Fraction of cells set null=",masked_fraction)
         save_results(db, mastergrid, stack, sumwt, control, output_base_name, alg)
