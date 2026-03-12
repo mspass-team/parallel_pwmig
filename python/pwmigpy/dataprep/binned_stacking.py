@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-This module contains functions used to implement a CLI tool called 
-"pseudosource_stacker".   That tool is a genarlization of an older 
-C++ program called RFeventstacker.  The key concept is stacking of all 
-data assmebled into bins using some document key to define the grouping.  
-The functions I am creating initially duplicate the functionality of 
-RFeventstacker, which is groups of sources that are geographcally "close".   
-Note, however, that the general concept could be applied to something 
-as different as CMP stacking.   For global seismology a better example 
-would be core-mantle boundary reflection studies with data grouped by 
+This module contains functions used to implement a CLI tool called
+"pseudosource_stacker".   That tool is a genarlization of an older
+C++ program called RFeventstacker.  The key concept is stacking of all
+data assmebled into bins using some document key to define the grouping.
+The functions I am creating initially duplicate the functionality of
+RFeventstacker, which is groups of sources that are geographcally "close".
+Note, however, that the general concept could be applied to something
+as different as CMP stacking.   For global seismology a better example
+would be core-mantle boundary reflection studies with data grouped by
 the geographic location of ScS or PcP midpoints.
 
 Created on Wed Sep 24 07:30:05 2025
@@ -22,126 +22,129 @@ import copy
 from mspasspy.util.Undertaker import Undertaker
 from mspasspy.util.seismic import number_live
 from mspasspy.util.Janitor import Janitor
-from mspasspy.ccore.utility import ErrorSeverity,Metadata
-from mspasspy.ccore.seismic import (SeismogramEnsemble,
-                                    TimeSeries,
-                                    Seismogram,
-                                    )
+from mspasspy.ccore.utility import ErrorSeverity, Metadata
+from mspasspy.ccore.seismic import (
+    SeismogramEnsemble,
+    TimeSeries,
+    Seismogram,
+)
 
 from mspasspy.algorithms.basic import ExtractComponent
 from mspasspy.algorithms.MCXcorStacking import robust_stack
 
-def load_and_sort(db,
-                  key_or_query_list,
-                  query_key="source_id",
-                  sort_key="site_id",
-                  collection="wf_Seismogram",
-                  data_type="Seismogram",
-                  drop_abortions=True,
-                  magnitude_key=None,
-                  full_weight_magnitude=6.0,
-                  floor_magnitude=4.0,
-                  minimum_weight=0.01,
-                  default_magnitude=4.5,
-                  magnitude_weight_key="magnitude_weight"
-                  )->dict:
+
+def load_and_sort(
+    db,
+    key_or_query_list,
+    query_key="source_id",
+    sort_key="site_id",
+    collection="wf_Seismogram",
+    data_type="Seismogram",
+    drop_abortions=True,
+    magnitude_key=None,
+    full_weight_magnitude=6.0,
+    floor_magnitude=4.0,
+    minimum_weight=0.01,
+    default_magnitude=4.5,
+    magnitude_weight_key="magnitude_weight",
+) -> dict:
     """
-    Load data defined by a list of key values and sort them into 
+    Load data defined by a list of key values and sort them into
     a list of ensembles using a different key.
-    
-    Data are commonly stored in a particular sort order that is natural 
+
+    Data are commonly stored in a particular sort order that is natural
     for the algorithm or data collection system from which they were derived.
-    e.g. reflection data is always collected as common source gathers.   
-    Similarly, data downloaded from the FDSN is commonly loaded as 
+    e.g. reflection data is always collected as common source gathers.
+    Similarly, data downloaded from the FDSN is commonly loaded as
     common source gathers driven by earthquake location data.   A downstream
-    processing algorithm, however, often needs the data in a completely 
-    different order.   The case in point that led me to create this generic 
-    function in the first place was converted wave imaging where the 
-    deconvolved output data is naturally organized by source but many 
-    algorithms need the data organized by station.  In particular, for 
-    pwmig this is needed to create composite source solutions using 
-    groupings defined by the telecluster program.   The impulse response 
+    processing algorithm, however, often needs the data in a completely
+    different order.   The case in point that led me to create this generic
+    function in the first place was converted wave imaging where the
+    deconvolved output data is naturally organized by source but many
+    algorithms need the data organized by station.  In particular, for
+    pwmig this is needed to create composite source solutions using
+    groupings defined by the telecluster program.   The impulse response
     estimates from the source groups are vertically stacked for each station
-    to produce composite sources for an entire large array using that 
+    to produce composite sources for an entire large array using that
     algorithm.
-    
-    It is IMPORTANT to understand that this algorithm is necessary for 
-    efficiency only when working with files and a large data set.  It is 
-    known to be especially important for data stored on a large disk array 
-    using Lustre where there is a large cost for opening files.   Running 
+
+    It is IMPORTANT to understand that this algorithm is necessary for
+    efficiency only when working with files and a large data set.  It is
+    known to be especially important for data stored on a large disk array
+    using Lustre where there is a large cost for opening files.   Running
     on a cloud system like AWS S3 would be subject to an even worse overhead.
-    What this function does is read data in what it assumes is the 
-    natural order defined by the list of ids passed as arg1.  That is, 
-    the outer loop of the algorithm is a loop over the list passed as 
-    arg1 with a query or an implicit query with a list of object ids 
-    that are assumed actual values of the key defined by `query_key`.  
-    In that loop each ensemble is read and the data are sorted 
-    in memory into slots keyed by the `sortkey` value.   Any inputs 
-    that do not have a value for the `sortkey` will be killed 
+    What this function does is read data in what it assumes is the
+    natural order defined by the list of ids passed as arg1.  That is,
+    the outer loop of the algorithm is a loop over the list passed as
+    arg1 with a query or an implicit query with a list of object ids
+    that are assumed actual values of the key defined by `query_key`.
+    In that loop each ensemble is read and the data are sorted
+    in memory into slots keyed by the `sortkey` value.   Any inputs
+    that do not have a value for the `sortkey` will be killed
     and buried with an `Undertaker` object creaed inside this function.
-    Component 0 of the return will be a dictionary with keys defined by 
-    actual values found for `sortkey` and an ensemble of data with 
-    that value as the value of `sortkey`.  
-    
+    Component 0 of the return will be a dictionary with keys defined by
+    actual values found for `sortkey` and an ensemble of data with
+    that value as the value of `sortkey`.
+
     :param db:  MongoDB or MsPASS instance of a Database object
-    :key_or_query_list: Must be a list.  That list must contain 
+    :key_or_query_list: Must be a list.  That list must contain
       one of two types of data:  (a) items that can define a unique match
-      that define initial grouping (normally ObjectIds), or (b) python 
-      dictionaries that are assumed to be valid MongoDB query operators.  
-      When the content is dictionaries they are used in the outermost 
-      loop to run a find followed by read_data to load ensembles.  
-      When passed as a list of ObjectIds, a list of queries is 
-      generated internally using equality matching on the key value 
+      that define initial grouping (normally ObjectIds), or (b) python
+      dictionaries that are assumed to be valid MongoDB query operators.
+      When the content is dictionaries they are used in the outermost
+      loop to run a find followed by read_data to load ensembles.
+      When passed as a list of ObjectIds, a list of queries is
+      generated internally using equality matching on the key value
       defined by the `query_key` argument.
-    :param query_key:   key name to use if the list defined the 
-      required argument `key_or_query_list` argument is not a list of 
-      dictionaries.   In that case, the queries are generated by equality 
-      matching againts this key name and values defined by the content of 
-      the arg1 list.  Normally that is ObjectIds, but anything that can 
-      guarantee a unique match would work.  This argument is ignored if 
-      `key_or_query_list` is a list of dictionaries.  
+    :param query_key:   key name to use if the list defined the
+      required argument `key_or_query_list` argument is not a list of
+      dictionaries.   In that case, the queries are generated by equality
+      matching againts this key name and values defined by the content of
+      the arg1 list.  Normally that is ObjectIds, but anything that can
+      guarantee a unique match would work.  This argument is ignored if
+      `key_or_query_list` is a list of dictionaries.
     :type query_key:  string (default is "source_id")
-    :param sort_key:   key by which the data ahould be sorted for output.  
+    :param sort_key:   key by which the data ahould be sorted for output.
     :type sort_key:   string (default "site_id")
-    :param collection:   MongoDB collection name containing waveform 
-      metadata documents that are the target of queries.   The function 
-      dogmatically demands that if data_type is "TimeSeries" collection 
+    :param collection:   MongoDB collection name containing waveform
+      metadata documents that are the target of queries.   The function
+      dogmatically demands that if data_type is "TimeSeries" collection
       must be either "wf_TimeSeries" or "wf_miniseed".  If data_type is
-      "Seismogram" it requires collection to be "wf_Seismogram".   
-      The function is dogmatic about that requirement as it would be 
-      easy for even an experienced user to mix that up.  If additional 
-      wf collections are added in the future more flexibility could be 
+      "Seismogram" it requires collection to be "wf_Seismogram".
+      The function is dogmatic about that requirement as it would be
+      easy for even an experienced user to mix that up.  If additional
+      wf collections are added in the future more flexibility could be
       easily added here.
     :type collection:  string (default "wf_Seismogram")
-    :param data_type:   Expected data type of atomic data linked to each 
-      document retrieved from `collection`.   
-    :type data_type: string (default "Seismogram").  Must be either 
-      "Seismogram" or "TimeSeries".  If not, the function will throw a 
+    :param data_type:   Expected data type of atomic data linked to each
+      document retrieved from `collection`.
+    :type data_type: string (default "Seismogram").  Must be either
+      "Seismogram" or "TimeSeries".  If not, the function will throw a
       ValueError exception.
     :return:  dictionary of ensembles keyed by sort_key values.
     """
     # first verify argumens and consistency
-    # if db is wrong assume exceptions will be thrown that make that 
+    # if db is wrong assume exceptions will be thrown that make that
     # issue clear
     prog = "load_and_sort"
-    if not isinstance(key_or_query_list,list):
+    if not isinstance(key_or_query_list, list):
         message = prog + ":  illegal type for arg1={}\n".type(key_or_query_list)
         message += "Must be a list of key values or python dictionaries"
         raise ValueError(message)
     # assume all list elements are the same
     testval = key_or_query_list[0]
-    if isinstance(testval,dict):
+    if isinstance(testval, dict):
         query_list = key_or_query_list
     else:
-        query_list=list()
+        query_list = list()
         for val in key_or_query_list:
-            query={query_key : val}
+            query = {query_key: val}
             query_list.append(query)
     # be dogmatic about collection name
-    # this may be unnecesary but the errors trapped here would be very 
+    # this may be unnecesary but the errors trapped here would be very
     # easy to commit
     if data_type == "TimeSeries":
-        if collection not in ["wf_TimeSeries","wf_miniseed"]:
+        if collection not in ["wf_TimeSeries", "wf_miniseed"]:
             message = prog + ":  Illegal arg combination\n"
             message += "data_type is TimeSeries but collection={}\n".format(collection)
             message += "for TimeSeries data collection must be either wf_TimeSeries or wf_miniseed"
@@ -153,56 +156,62 @@ def load_and_sort(db,
             message += "for Seismogram data collection must be wf_Seismogram"
             raise ValueError(message)
     else:
-        message = prog + ":  data_type={} is not allowed.  Must be either TimeSeries or Seismogram".format(data_type)
+        message = (
+            prog
+            + ":  data_type={} is not allowed.  Must be either TimeSeries or Seismogram".format(
+                data_type
+            )
+        )
         raise ValueError(message)
-    
+
     # both of these must be defined to enable magnitude weighting
     if magnitude_key is None:
         set_magnitude_weight = False
     else:
         set_magnitude_weight = True
-    
+
     # we bury abortions with ths undertaker
     stedronsky = Undertaker(db)
     dbcol = db[collection]
     sorted_data = dict()
     for query in query_list:
         cursor = dbcol.find(query)
-        e = db.read_data(cursor,collection=collection)
+        e = db.read_data(cursor, collection=collection)
         if set_magnitude_weight:
             # pull source_id from the first record it is found
             # then query source collection for source data
-            # could do this with a matcher but seems an unecessary complexity 
+            # could do this with a matcher but seems an unecessary complexity
             # for this case
-            magnitude_not_found=True
+            magnitude_not_found = True
             for d in e.member:
                 if "source_id" in d:
                     srcid = d["source_id"]
-                    doc = db.source.find_one({"_id" : srcid})
+                    doc = db.source.find_one({"_id": srcid})
                     if doc and magnitude_key in doc:
                         mag = doc[magnitude_key]
                     else:
                         mag = default_magnitude
-                    magwt = magnitude_weight(mag,
-                                             full_weight_magnitude=full_weight_magnitude,
-                                             floor_magnitude=floor_magnitude,
-                                             minimum_weight=minimum_weight,
-                                             )
+                    magwt = magnitude_weight(
+                        mag,
+                        full_weight_magnitude=full_weight_magnitude,
+                        floor_magnitude=floor_magnitude,
+                        minimum_weight=minimum_weight,
+                    )
                     magnitude_not_found = True
                     break
             if magnitude_not_found:
-                magwt = magnitude_weight(default_magnitude,
-                                         full_weight_magnitude=full_weight_magnitude,
-                                         floor_magnitude=floor_magnitude,
-                                         minimum_weight=minimum_weight,
-                                         )
-                
+                magwt = magnitude_weight(
+                    default_magnitude,
+                    full_weight_magnitude=full_weight_magnitude,
+                    floor_magnitude=floor_magnitude,
+                    minimum_weight=minimum_weight,
+                )
+
             for i in range(len(e.member)):
                 e.member[i][magnitude_weight_key] = magwt
-                        
-            
-        # note most dictionaries use string keys but docuentation says 
-        # any immutable type can serve as a dictionary key.   The most 
+
+        # note most dictionaries use string keys but docuentation says
+        # any immutable type can serve as a dictionary key.   The most
         # common key to use here will be ObjectId values which will work
         # in this context
         for d in e.member:
@@ -210,7 +219,7 @@ def load_and_sort(db,
                 stedronsky.bury(d)
             else:
                 if sort_key in d:
-                    this_key=d[sort_key]
+                    this_key = d[sort_key]
                     if this_key in sorted_data:
                         sorted_data[this_key].member.append(d)
                     else:
@@ -220,55 +229,58 @@ def load_and_sort(db,
                         e.member.append(d)
                         e.set_live()
                         sorted_data[this_key] = e
-                        
+
                 else:
-                    message = "sort_key={} not found for this datum so processing by this algorithm failed".format(sort_key)
-                    d.elog.log_error(prog,message,ErrorSeverity.Invalid)
+                    message = "sort_key={} not found for this datum so processing by this algorithm failed".format(
+                        sort_key
+                    )
+                    d.elog.log_error(prog, message, ErrorSeverity.Invalid)
                     d.kill()
                     stedronsky.bury(d)
     return sorted_data
 
-def linear_stack(ens,weight_key=None,undefined_weight=0.0,sumwt_key="sumwt"):
+
+def linear_stack(ens, weight_key=None, undefined_weight=0.0, sumwt_key="sumwt"):
     """
-    Generic linear stacking function to vertically average all members of 
-    an ensemble. 
-    
+    Generic linear stacking function to vertically average all members of
+    an ensemble.
+
     Simple averaging is the norm for seismic reflection data.   This
-    function can be used to compute any "linear stack" which means an 
+    function can be used to compute any "linear stack" which means an
     average computed as a linear combination of all the "member" objects
-    of an input ensemble (arg0 with name ens). By default that means 
-    a simple average where all components are added with no weighting 
-    (a vector mean).   If `weight_key` is defined a weighted sum is 
-    computed with the weights extracted from the Metadata container of 
-    each member using a specified key passed through the `weight_key` 
-    value.   When that mode is enabled the value of `undefined_weight` 
-    is used for any member with tha requred key missing.   
-    
-    Note the sums are all computed from the member data doing the 
-    operator += of the C++ Seismogram object.   The way that handles 
-    timing is important.   The first live member sets the value of t0 
-    for the stack.  Members added are time time shifted before stacking.  
-    That means the algorithm implicitly assumed the data are already in 
-    relative time and t0 of all members is approximately the same 
+    of an input ensemble (arg0 with name ens). By default that means
+    a simple average where all components are added with no weighting
+    (a vector mean).   If `weight_key` is defined a weighted sum is
+    computed with the weights extracted from the Metadata container of
+    each member using a specified key passed through the `weight_key`
+    value.   When that mode is enabled the value of `undefined_weight`
+    is used for any member with tha requred key missing.
+
+    Note the sums are all computed from the member data doing the
+    operator += of the C++ Seismogram object.   The way that handles
+    timing is important.   The first live member sets the value of t0
+    for the stack.  Members added are time time shifted before stacking.
+    That means the algorithm implicitly assumed the data are already in
+    relative time and t0 of all members is approximately the same
     (i.e. with a couple of samples).
-    
-    The returned stack is a Seismogram object normalized by 1/N for 
+
+    The returned stack is a Seismogram object normalized by 1/N for
     no weights and 1/sum(wts) for a weighted stack.
-    
+
     :param ens:   ensemble to be stacked
     :type ens:  Must be a SeismogramEnsemble or the function will abort
-    :param weight_key:  if set function will attempt to extract the 
-      weight value for that datum from the datum's Metadata container 
-      using this key.  If it is not set (i.e None - the default) the 
-      algorithm does no weighting.  
+    :param weight_key:  if set function will attempt to extract the
+      weight value for that datum from the datum's Metadata container
+      using this key.  If it is not set (i.e None - the default) the
+      algorithm does no weighting.
     :typ weight_key:   str or None (default)
-    :param undefined_weight:  weight used if `weight_key` is set but the 
-       that key has no value set in a datum's Metadata container.  
+    :param undefined_weight:  weight used if `weight_key` is set but the
+       that key has no value set in a datum's Metadata container.
     :type undefined_weight:  float (default 0.0)
     :return:   Seismogram object containing the stack
     """
     sumwt = 0.0
-    result=None
+    result = None
     for i in range(len(ens.member)):
         d = ens.member[i]
         if d.live:
@@ -277,7 +289,7 @@ def linear_stack(ens,weight_key=None,undefined_weight=0.0,sumwt_key="sumwt"):
                     wt = d[weight_key]
                 else:
                     wt = undefined_weight
-                if wt>0.0:
+                if wt > 0.0:
                     d.data *= wt
                 sumwt += wt
             else:
@@ -288,180 +300,188 @@ def linear_stack(ens,weight_key=None,undefined_weight=0.0,sumwt_key="sumwt"):
             else:
                 result += d
     # handle null result
-    if result is None or sumwt<=0.0:
-        # awkward but necessary to return an appropriate null result 
+    if result is None or sumwt <= 0.0:
+        # awkward but necessary to return an appropriate null result
         # return a default constructed atomic datum if all failed
         if isinstance(ens.TimeSeriesEnsemble):
             return TimeSeries()
-        elif isinstance(ens,SeismogramEnsemble):
+        elif isinstance(ens, SeismogramEnsemble):
             return Seismogram()
         else:
-            # this exception should never be thrown as above will 
+            # this exception should never be thrown as above will
             # abort before this but this is a safetyy value
             raise ValueError("linear_stack:  received invalid data for arg0")
     # /= is currently not defined but *= is so we have to compute this as a multiplier
-    normalizer=1.0/sumwt
+    normalizer = 1.0 / sumwt
     result.data *= normalizer
     result[sumwt_key] = sumwt
-    return result            
-                
-def robust_stack_3C(ensemble,
-                    method="dbxcor",
-                    stack0=None,
-                    stack_md=None,
-                    timespan_method="ensemble_inner",
-                    pad_fraction_cutoff=0.05,
-                    residual_norm_floor=0.01,
-                ):
+    return result
+
+
+def robust_stack_3C(
+    ensemble,
+    method="dbxcor",
+    stack0=None,
+    stack_md=None,
+    timespan_method="ensemble_inner",
+    pad_fraction_cutoff=0.05,
+    residual_norm_floor=0.01,
+):
     """
-    Applied MCXcor robust_stack function for each of three components 
-    and then merges the three TimeSeries to return a Seismogram 
-    from all three components.   The args here are identical to 
+    Applied MCXcor robust_stack function for each of three components
+    and then merges the three TimeSeries to return a Seismogram
+    from all three components.   The args here are identical to
     to MCXcrStacking.robust_stack.
-    
-    The function returns a tuple that is an extension of that 
-    returned by the MXcorStacking.robust_stack function.  
-    That is, like that function component 0 is the robust stack.  
+
+    The function returns a tuple that is an extension of that
+    returned by the MXcorStacking.robust_stack function.
+    That is, like that function component 0 is the robust stack.
     The oddities is component 1.  For scalar input the return is a
-    vector of weights.   In this case the return is a python list 
-    containing three numpy vectors containing the weights used for 
-    each component.   That can be useful for expermental alternatives 
-    for handling the stack.  That is, this function computes weighs 
-    independently for each component, but one might choose to 
-    normalize the weights to a single weight for each Seismogram 
-    to avoid relative amplitude distortion.  
+    vector of weights.   In this case the return is a python list
+    containing three numpy vectors containing the weights used for
+    each component.   That can be useful for expermental alternatives
+    for handling the stack.  That is, this function computes weighs
+    independently for each component, but one might choose to
+    normalize the weights to a single weight for each Seismogram
+    to avoid relative amplitude distortion.
     """
     # toDO  make sure ensemble is a SeismgoramEnsemble
-    stacklist=list()
-    wtlist=list()
+    stacklist = list()
+    wtlist = list()
     for i in range(3):
-        ets = ExtractComponent(ensemble,i)
-        rsout = robust_stack(ets,
-                             method,
-                             stack0,
-                             stack_md,
-                             timespan_method,
-                             pad_fraction_cutoff,
-                             residual_norm_floor)
+        ets = ExtractComponent(ensemble, i)
+        rsout = robust_stack(
+            ets,
+            method,
+            stack0,
+            stack_md,
+            timespan_method,
+            pad_fraction_cutoff,
+            residual_norm_floor,
+        )
         stacklist.append(rsout[0])
         wtlist.append(rsout[1])
-    # we can assume all the components yield the same length output 
-    # so we just clone component 0.  With the Metadata constructor 
+    # we can assume all the components yield the same length output
+    # so we just clone component 0.  With the Metadata constructor
     # the size will be set by the Metadata content.
     md = Metadata(stacklist[0])
     # this special constructor clones md will initialize the data matrix
-    # to the size defined by  the TimeSeries stacklist[0] from which md was 
+    # to the size defined by  the TimeSeries stacklist[0] from which md was
     # extracted
-    stack = Seismogram(md,False)
+    stack = Seismogram(md, False)
     for i in range(3):
-        stack.data[i,:] = stacklist[i].data
+        stack.data[i, :] = stacklist[i].data
     stack.set_live()
-    return [stack,wtlist]
-    
-        
-    
-def stack_groups(keyed_ensemble,
-                 method="median",
-                 weight_key="composite_weight",
-                 undefined_weight=0.0,
-                 janitor=None,
-                 timespan_method="ensemble_inner",
-                 pad_fraction_cutoff=0.05,
-                 residual_norm_floor=0.01,
-                 )->SeismogramEnsemble:
+    return [stack, wtlist]
+
+
+def stack_groups(
+    keyed_ensemble,
+    method="median",
+    weight_key="composite_weight",
+    undefined_weight=0.0,
+    janitor=None,
+    timespan_method="ensemble_inner",
+    pad_fraction_cutoff=0.05,
+    residual_norm_floor=0.01,
+) -> SeismogramEnsemble:
     """
-    Top-level function used to stack output of data created by load_and_stack 
+    Top-level function used to stack output of data created by load_and_stack
     function in this module.
-    
-    This function was created primarily for stacking impulse response 
-    estimates grouped by region with the CLI tool telecluster.   I tried to 
-    make it generic enough, however, that it should prove useful for a 
-    range of research problems where the data are binned by some external 
-    algorithm into groups that can be vertically stacked (i.e. averaged 
-    without a time shift).  
-    
-    The algorithm stacks contents of a dictioary where the keys of the 
-    dictionary are the unique key used for sorting the data into 
+
+    This function was created primarily for stacking impulse response
+    estimates grouped by region with the CLI tool telecluster.   I tried to
+    make it generic enough, however, that it should prove useful for a
+    range of research problems where the data are binned by some external
+    algorithm into groups that can be vertically stacked (i.e. averaged
+    without a time shift).
+
+    The algorithm stacks contents of a dictioary where the keys of the
+    dictionary are the unique key used for sorting the data into
     the groups that are the values associated with that key.  The groups
-    are stored as SeismogramEnsemble objects - i.e. the value associated 
-    with each key is assumed to be a SeismogramEnsemble.  
-    
+    are stored as SeismogramEnsemble objects - i.e. the value associated
+    with each key is assumed to be a SeismogramEnsemble.
+
     Currently four algorithms can be selected via the method argument:
-        "average" - compute a simple arithmetic mean as the stack.  
-           For the record that is the standard way seismic reflection 
-           data are "stacked".  All data are given equal weight in 
+        "average" - compute a simple arithmetic mean as the stack.
+           For the record that is the standard way seismic reflection
+           data are "stacked".  All data are given equal weight in
            the stack
-         "weighted_average" - invokes a weighted mean with the weights 
-           extracted from each atomic datum's Metatdata container 
+         "weighted_average" - invokes a weighted mean with the weights
+           extracted from each atomic datum's Metatdata container
            with the (then required) key defined by the "weight_key"
-           argument.  Note if this method is selected "weight_key" 
-           must be defined the function will abort by throwning a 
+           argument.  Note if this method is selected "weight_key"
+           must be defined the function will abort by throwning a
            ValueError exception.
-         "median" - invokes a median stack.  This behaves exactly like 
-           average except the measure of center for each output sample is 
+         "median" - invokes a median stack.  This behaves exactly like
+           average except the measure of center for each output sample is
            the median instead of the mean.   Sometimes also called an L1 stack.
-         "robust_dbxcor" - invoke the robust stack method used in dbxcor 
+         "robust_dbxcor" - invoke the robust stack method used in dbxcor
            with the mspass implementation in the spasspy.algorithms.MCXcorStacking
-           module.   This argument uses the parameters with the same 
-           name in the robust_stack function with these arg names in this 
+           module.   This argument uses the parameters with the same
+           name in the robust_stack function with these arg names in this
            function:  stack0, stack_md, timespan_method, pad_fraction_cutoff,
-           and residual_norm_floor.   See the docstring for 
+           and residual_norm_floor.   See the docstring for
            mspsspy.algorithms.MCXdorStacking.robust_stack for guidance.
-           
+
     """
     # check args
-    # this type test is a sanity check only.  For now assume the 
+    # this type test is a sanity check only.  For now assume the
     # dictionary content is ok if this resolves
     prog = "stack_groups"
-    if not isinstance(keyed_ensemble,dict):
+    if not isinstance(keyed_ensemble, dict):
         message = prog
         message += ":  arg0 must be a dictionary with SeismogramEnsemble values\n"
         message += "Actual type of arg0 is {}".format(type(keyed_ensemble))
         raise ValueError(message)
-    # make sure this list is consistent with the match-case elements 
+    # make sure this list is consistent with the match-case elements
     # in the algorithm below
-    allowed_methods = ["average","weighted_average","median","robust_dbxcor"]
+    allowed_methods = ["average", "weighted_average", "median", "robust_dbxcor"]
     if method not in allowed_methods:
         message = prog
-        message += ":  method={} is supported.  Must be one of:  {}".format(method,allowed_methods)
+        message += ":  method={} is supported.  Must be one of:  {}".format(
+            method, allowed_methods
+        )
         raise ValueError(message)
     if method == "weighted_average" and weight_key is None:
         message = prog
         message += ":  illegal argument combination.\n"
-        message += "method is set to weighted_average but weight_key value was no specified.\n"
+        message += (
+            "method is set to weighted_average but weight_key value was no specified.\n"
+        )
         message += "Tha algorithm needs to fetch weights from Metadata using the key defined by the weight_key argument"
         raise ValueError(message)
     if janitor is None:
         janitor = Janitor()
-    
-    # note this constructor sets u slos for members but doesn't 
+
+    # note this constructor sets u slos for members but doesn't
     # doesn't create any Seismogram objects
     stacked_data = SeismogramEnsemble(len(keyed_ensemble))
-    # This echos args for this function as a subdocument posted to the 
+    # This echos args for this function as a subdocument posted to the
     # output's Metadata container
-    argdoc=dict()
-    argdoc["method"]=method
-    if method=="weighted_average":
+    argdoc = dict()
+    argdoc["method"] = method
+    if method == "weighted_average":
         argdoc["weight_key"] = weight_key
         argdoc["undefined_weight"] = undefined_weight
-    if method in ["median","robust_dbxcor"]:
+    if method in ["median", "robust_dbxcor"]:
         argdoc["timespan_method"] = timespan_method
         argdoc["pad_fraction_cutoff"] = pad_fraction_cutoff
         argdoc["residual_norm_floor"] = residual_norm_floor
-    stacked_data["stacker_arguments"]=argdoc
+    stacked_data["stacker_arguments"] = argdoc
     for ekey in keyed_ensemble:
         ensemble = keyed_ensemble[ekey]
         Nstack = number_live(ensemble)
-        # old versions of python will fail on this line but since this 
-        # construct was added after 3.10 I will use it here for improved 
+        # old versions of python will fail on this line but since this
+        # construct was added after 3.10 I will use it here for improved
         # raadability and efficiency
         match method:
             case "average":
                 stack = linear_stack(ensemble)
             case "weighted_average":
-                stack = linear_stack(ensemble,
-                                     weight_key=weight_key,
-                                     undefined_weight=undefined_weight)
+                stack = linear_stack(
+                    ensemble, weight_key=weight_key, undefined_weight=undefined_weight
+                )
                 wts = np.zeros(len(ensemble.member))
                 for i in range(len(ensemble.member)):
                     if ensemble.member[i].live:
@@ -470,32 +490,34 @@ def stack_groups(keyed_ensemble,
                         else:
                             wts[i] = undefined_weight
                     else:
-                        wts[i] = 0.0   # not strictly necessary but clearer
+                        wts[i] = 0.0  # not strictly necessary but clearer
             case "median":
-                stack_md = build_stackmd(ensemble,janitor)
-                stack,wts = robust_stack_3C(ensemble,
-                                        method="median",
-                                        stack0=None,
-                                        stack_md=stack_md,
-                                        timespan_method=timespan_method,
-                                        pad_fraction_cutoff=pad_fraction_cutoff,
-                                        residual_norm_floor=residual_norm_floor,
-                                    )
-            
+                stack_md = build_stackmd(ensemble, janitor)
+                stack, wts = robust_stack_3C(
+                    ensemble,
+                    method="median",
+                    stack0=None,
+                    stack_md=stack_md,
+                    timespan_method=timespan_method,
+                    pad_fraction_cutoff=pad_fraction_cutoff,
+                    residual_norm_floor=residual_norm_floor,
+                )
+
             case "robust_dbxcor":
-                stack_md = build_stackmd(ensemble,janitor)
+                stack_md = build_stackmd(ensemble, janitor)
                 # for present discard wts component weights
-                # possible extension is restack using something like max or 
+                # possible extension is restack using something like max or
                 # min weights as a single weight for each Seismogram
                 # this handles each component independently
-                stack,wts = robust_stack_3C(ensemble,
-                                        method="dbxcor",
-                                        stack0=None,
-                                        stack_md=stack_md,
-                                        timespan_method=timespan_method,
-                                        pad_fraction_cutoff=pad_fraction_cutoff,
-                                        residual_norm_floor=residual_norm_floor,
-                                    )
+                stack, wts = robust_stack_3C(
+                    ensemble,
+                    method="dbxcor",
+                    stack0=None,
+                    stack_md=stack_md,
+                    timespan_method=timespan_method,
+                    pad_fraction_cutoff=pad_fraction_cutoff,
+                    residual_norm_floor=residual_norm_floor,
+                )
                 stack["stack_weights"] = wts
             case _:
                 message = prog
@@ -503,8 +525,8 @@ def stack_groups(keyed_ensemble,
                 message += "This should not happen and is a fatal error\n"
                 message += "Likely error in code defining supported methods list"
                 raise RuntimeError(message)
-        
-        # this is redundant for median and robust_dbxcor data but needed 
+
+        # this is redundant for median and robust_dbxcor data but needed
         # for average and weighted_average.  Minor cost to do this
         janitor.clean(stack)
         stack["Nstack"] = Nstack
@@ -518,49 +540,50 @@ def stack_groups(keyed_ensemble,
         stack["stack_source_ids"] = srcidlist
         # append output even if it is marked dead
         stacked_data.member.append(stack)
-    # this has to be called first or number_live will always return 0 
+    # this has to be called first or number_live will always return 0
     # it doesn't test memers if the ensemble is marked dead
     stacked_data.set_live()
-    if number_live(stacked_data)==0:
+    if number_live(stacked_data) == 0:
         stacked_data.kill()
     return stacked_data
-    
 
-def set_ensemble_weights(ensemble,
-                    metric_to_use="snr_H",
-                    snr_subdoc_key="snr_RF",
-                    ceiling_level=300.0,
-                    floor_level=3.0,
-                    power=2.0,
-                    raw_weight_key="RF_snr_wt",
-                    Null_weight_value=1.0,
-                    )->SeismogramEnsemble:
+
+def set_ensemble_weights(
+    ensemble,
+    metric_to_use="snr_H",
+    snr_subdoc_key="snr_RF",
+    ceiling_level=300.0,
+    floor_level=3.0,
+    power=2.0,
+    raw_weight_key="RF_snr_wt",
+    Null_weight_value=1.0,
+) -> SeismogramEnsemble:
     """
-    Scan ensemble for values of a signal-to-noise ratio and convert 
-    them to a weight.   Result is stored in the Metadata container 
-    of each member with the key defined by `rms_weight_key`.  
-    
-    Signal-to-noise ratio estimates are a basic tool for signal processing 
-    based methods to grade data by quality.   For any seismic processing 
-    algorithm handling transient signals (i.e. signals generated 
-    by an earthquake or explosion) snr is a way to a first-order way 
-    to judge the quality of what you are trying to analyze.  What metric 
-    to use, however, is dependent on the nature of the analysis being 
-    underaken.   e.g. peak amplitude relative to background noise is 
-    a critical metric if one is estimating standard magnitude estimators 
-    based on peak amplitude.   Other algorithms have a more elaboate 
-    metric.  The default for this algorithm is a case in point.  The 
-    default uses a special metric for receiver function estimates 
-    where the estimate is the amplitude of the direct P signal at 0 lag 
-    on the horizontal components relative to filered background noise.  
-    
-    TODO:   modify existing algorithm to use noise snr 
-    before decon applied - know now that conventional decon distorts 
-    peevent noise.   That, at least, should be an option.   The 
+    Scan ensemble for values of a signal-to-noise ratio and convert
+    them to a weight.   Result is stored in the Metadata container
+    of each member with the key defined by `rms_weight_key`.
+
+    Signal-to-noise ratio estimates are a basic tool for signal processing
+    based methods to grade data by quality.   For any seismic processing
+    algorithm handling transient signals (i.e. signals generated
+    by an earthquake or explosion) snr is a way to a first-order way
+    to judge the quality of what you are trying to analyze.  What metric
+    to use, however, is dependent on the nature of the analysis being
+    underaken.   e.g. peak amplitude relative to background noise is
+    a critical metric if one is estimating standard magnitude estimators
+    based on peak amplitude.   Other algorithms have a more elaboate
+    metric.  The default for this algorithm is a case in point.  The
+    default uses a special metric for receiver function estimates
+    where the estimate is the amplitude of the direct P signal at 0 lag
+    on the horizontal components relative to filered background noise.
+
+    TODO:   modify existing algorithm to use noise snr
+    before decon applied - know now that conventional decon distorts
+    peevent noise.   That, at least, should be an option.   The
     algorithm involved is not yet in the distributin anyway.
-    
-    The weight assigned to a datum is controlled by two parameters 
-    to the function:  ceiling level and floor_level.  The actual 
+
+    The weight assigned to a datum is controlled by two parameters
+    to the function:  ceiling level and floor_level.  The actual
     weighting is a simple scheme:
         if snr<floor_level:
             weight=0
@@ -568,19 +591,23 @@ def set_ensemble_weights(ensemble,
             weight=1.0
         else:
             weight = (snr/ceiling_level)^power
-            
-    Note power isn't alloed to be negative or low snr data will receive 
+
+    Note power isn't alloed to be negative or low snr data will receive
     larger weights than 1.0
-    
-    If no datum in the ensemble has the key requested set the 
-    value of raw_weight_key will be set to the value defined by 
+
+    If no datum in the ensemble has the key requested set the
+    value of raw_weight_key will be set to the value defined by
     null_weight_value.
     """
-    if power<0:
-        message = "snr_ensemble_weights:   illegal value power={}.  Must be positive".format(power)
+    if power < 0:
+        message = (
+            "snr_ensemble_weights:   illegal value power={}.  Must be positive".format(
+                power
+            )
+        )
         raise ValueError(message)
-    N=len(ensemble.member)
-    snrdata=np.zeros(N)
+    N = len(ensemble.member)
+    snrdata = np.zeros(N)
     for i in range(N):
         d = ensemble.member[i]
         if d.live:
@@ -588,97 +615,104 @@ def set_ensemble_weights(ensemble,
                 subdoc = d[snr_subdoc_key]
                 if metric_to_use in subdoc:
                     snrdata[i] = d[metric_to_use]
-    if len(snrdata)>0:
+    if len(snrdata) > 0:
         for i in range(N):
             if ensemble.member[i].live:
-                # depends on zeros initialization of snrdata to properly 
+                # depends on zeros initialization of snrdata to properly
                 # handle data with missing snr estimate
-                if snrdata[i]<floor_level:
+                if snrdata[i] < floor_level:
                     ensemble.member[i][raw_weight_key] = 0.0
                 elif snrdata[i] > ceiling_level:
                     ensemble.member[i][raw_weight_key] = 1.0
                 else:
-                    ensemble.member[i][raw_weight_key] = snrdata[i]/ceiling_level
+                    ensemble.member[i][raw_weight_key] = snrdata[i] / ceiling_level
     else:
-        message = "set_raw_weight:  no live datum had key={}.{} set\n".format(snr_subdoc_key,metric_to_use)
-        message = "Setting key={} for all ensemble members to {}".format(raw_weight_key,Null_weight_value)
-        ensemble.elog.log_error(message,ErrorSeverity.Complaint)
+        message = "set_raw_weight:  no live datum had key={}.{} set\n".format(
+            snr_subdoc_key, metric_to_use
+        )
+        message = "Setting key={} for all ensemble members to {}".format(
+            raw_weight_key, Null_weight_value
+        )
+        ensemble.elog.log_error(message, ErrorSeverity.Complaint)
         for d in ensemble.member:
             if d.live:
                 d[raw_weight_key] = Null_weight_value
     return ensemble
-    
-def compute_summary_weight(d,keylist,method="minimum")->tuple:
+
+
+def compute_summary_weight(d, keylist, method="minimum") -> tuple:
     """
     Compute a composite weight value from multiple estimates.
-    
-    There are multiple ways data can prove questionable but not worthless. 
-    A generic solution for averaging data with variable quality is linear sums 
-    with weights.   There are two ways I can think of to merge result 
-    with different weighting schemes.  One can (a) average multiple 
-    weighted average estiamtes with possible weighting of each component 
-    summed or (b) use a composite weight creating by considering the 
-    weights assigned to each datum and then computing a final estiamte 
-    using a simple weighted sum of the composite weights.   This function 
-    can be used for the later approach.  
-    
-    The function tries to extract multiple weight estimates from 
+
+    There are multiple ways data can prove questionable but not worthless.
+    A generic solution for averaging data with variable quality is linear sums
+    with weights.   There are two ways I can think of to merge result
+    with different weighting schemes.  One can (a) average multiple
+    weighted average estiamtes with possible weighting of each component
+    summed or (b) use a composite weight creating by considering the
+    weights assigned to each datum and then computing a final estiamte
+    using a simple weighted sum of the composite weights.   This function
+    can be used for the later approach.
+
+    The function tries to extract multiple weight estimates from
     the Metadata container of arg0 using a list of keys supplied
-    through the `keylist` (required arg1) argument. 
-    The way the weights are merged is defined by the `method` argument. 
+    through the `keylist` (required arg1) argument.
+    The way the weights are merged is defined by the `method` argument.
     Currently accepted values are:
-          minimum - use the minimum value 
+          minimum - use the minimum value
           maximum - use the maximum value
           median - ues the median value
           logmean - use the mean logarithmic value converted back linear scaling.
-          
-    This function tries to handle and recover from some situations 
-    and still inform the caller something is not ideal. It does that by 
-    returning not just the computed weight as component 0 of the returned 
-    tuple but it returns an error code in component 1.  If the error code 
+
+    This function tries to handle and recover from some situations
+    and still inform the caller something is not ideal. It does that by
+    returning not just the computed weight as component 0 of the returned
+    tuple but it returns an error code in component 1.  If the error code
     returned as component 1 is not zero it means one of two thing happened:
         1.  A key in keylist had no value associated with it.
-        2.  The weight returned for a key was not valid.  A weight to this 
+        2.  The weight returned for a key was not valid.  A weight to this
             function must be a value between 1.0 and 0.0 inclusive.
-    Callers should test the condition that the error count returned in 
-    as component 1 of the returned tuple == len(keylist).  In that case 
-    the weight returned as component 0 will also be zero.   
-    
-    :param d:  Datum to be processed.   Assumed to contain key-value pairs 
+    Callers should test the condition that the error count returned in
+    as component 1 of the returned tuple == len(keylist).  In that case
+    the weight returned as component 0 will also be zero.
+
+    :param d:  Datum to be processed.   Assumed to contain key-value pairs
       to be extracted using keylist set of keys.
-    :type d:  any data object that allows fetching attributes with a key 
+    :type d:  any data object that allows fetching attributes with a key
       like in the same way as a python dictionary.  That means any object
-      that inherits Metadata but can also mean a document (dictionary) 
-      extracted from a MongoDB database.  The later is important as a 
-      workflow can run as a pure database process calling this function 
-      in a cursor loop and then doing an update with the return of the 
-      original document.  
+      that inherits Metadata but can also mean a document (dictionary)
+      extracted from a MongoDB database.  The later is important as a
+      workflow can run as a pure database process calling this function
+      in a cursor loop and then doing an update with the return of the
+      original document.
     :param keylist:   list of keys to use to form the composite weight.
     :type keylist:  list of str values to use as keys
-    :param method:   algorithm to use to merge the list of weights 
+    :param method:   algorithm to use to merge the list of weights
       extracted using keys in keylist.
-    :type method:  str that must ve one of the following  "minimum" (default), 
+    :type method:  str that must ve one of the following  "minimum" (default),
       "maximum","median", or "logmean".  See above
-    
+
     """
-    if len(keylist)<2:
+    if len(keylist) < 2:
         message = "compute_summary_weight:  illegal input for arg1 (keylist)\n"
-        message = "Must be a list of Metadata keys with length > 1.  Received a list of length={}".format(len(keylist))
+        message = "Must be a list of Metadata keys with length > 1.  Received a list of length={}".format(
+            len(keylist)
+        )
     if d.dead():
-        return [0.0,0]
-    wtlist=list()
-    error_count=0
+        return [0.0, 0]
+    wtlist = list()
+    error_count = 0
     for key in keylist:
         if key in d:
             dwt = d[key]
-            if dwt<=1.0 and dwt>=0.0:
+            if dwt <= 1.0 and dwt >= 0.0:
                 wtlist.append(dwt)
             else:
                 error_count += 1
         else:
             error_count += 1
-    if len(wtlist)==0:
-        return [0.0,error_count]
+    if len(wtlist) == 0:
+        return [0.0, error_count]
     match method:
         case "minimum":
             wt = np.min(wtlist)
@@ -692,35 +726,40 @@ def compute_summary_weight(d,keylist,method="minimum")->tuple:
             # log is natural log so return e to x power
             wt = np.exp(x)
         case _:
-            message = "compute_summary_weight:   illegal value for method={}\n".format(method)
+            message = "compute_summary_weight:   illegal value for method={}\n".format(
+                method
+            )
             message += "Must be one of: minimum, maximum, median, or logmean"
             raise ValueError(message)
-    return [wt,error_count]
+    return [wt, error_count]
 
-def set_ensemble_summary_weights(ensemble,
-                                 keylist,
-                                 wtkey,
-                                 method="minimum",
-                                 null_weight_value=1.0,
-                                 )->SeismogramEnsemble:
-    """
-    """
-    nkeys=len(keylist)
-    if nkeys==1:
+
+def set_ensemble_summary_weights(
+    ensemble,
+    keylist,
+    wtkey,
+    method="minimum",
+    null_weight_value=1.0,
+) -> SeismogramEnsemble:
+    """ """
+    nkeys = len(keylist)
+    if nkeys == 1:
         # in this case this is just a copy of data from one key to another
-        key=keylist[0]
+        key = keylist[0]
         for d in ensemble.member:
             if d.live:
                 if key in d:
                     d[wtkey] = d[key]
                 else:
                     d[wtkey] = null_weight_value
-    elif nkeys>1:
+    elif nkeys > 1:
         nkeys = len(keylist)
         for i in range(len(ensemble.member)):
             if ensemble.member[i].live:
-                wt,errcount = compute_summary_weight(ensemble.member[i], keylist, method=method)
-                if errcount==nkeys:
+                wt, errcount = compute_summary_weight(
+                    ensemble.member[i], keylist, method=method
+                )
+                if errcount == nkeys:
                     ensemble.member[i][wtkey] = null_weight_value
                 else:
                     ensemble.member[i][wtkey] = wt
@@ -730,15 +769,16 @@ def set_ensemble_summary_weights(ensemble,
                 d[wtkey] = null_weight_value
     return ensemble
 
-def build_stackmd(ensemble,janitor=None)->Metadata:
+
+def build_stackmd(ensemble, janitor=None) -> Metadata:
     """
     Extract Metadata from first life ensemble member and optionally clean it.
-    
-    The median stacking algorithm requires at least a skeleton Metadata 
-    container to build the Seismogram object it computes.   This 
-    function can be used to generate this requirement from the input 
-    being passed to the algorithm before the robust_stack function is 
-    called.   If a Janitor object is defined via the `janitor` argument 
+
+    The median stacking algorithm requires at least a skeleton Metadata
+    container to build the Seismogram object it computes.   This
+    function can be used to generate this requirement from the input
+    being passed to the algorithm before the robust_stack function is
+    called.   If a Janitor object is defined via the `janitor` argument
     the clean method of that object will be called before it is returned.
     """
     if ensemble.dead():
@@ -747,56 +787,57 @@ def build_stackmd(ensemble,janitor=None)->Metadata:
         print("This is likely to cause downstream problems")
         print("Alter calling script to avoid this condition")
         return Metadata()
-    if janitor is not None: 
-        if isinstance(janitor,Janitor):
-            run_janitor=True
+    if janitor is not None:
+        if isinstance(janitor, Janitor):
+            run_janitor = True
         else:
             message = "This is an error message"
             raise ValueError(message)
     else:
-        run_janitor=False
+        run_janitor = False
     # clone the Metadata of the first live member of ensemble
     for d in ensemble.member:
         if d.live:
-            # Could do a type check coming into this routine 
-            # but expected use is mainly within this module where 
+            # Could do a type check coming into this routine
+            # but expected use is mainly within this module where
             # we can assume ensemble is a SeismogramEnsemble
-            #Careful if this module is made more generic for mspass
+            # Careful if this module is made more generic for mspass
             stackmd = Seismogram(d)
             break
     if run_janitor:
         janitor.clean(stackmd)
     return Metadata(stackmd)
 
-def get_subdoc_value(doc,key,separator="."):
+
+def get_subdoc_value(doc, key, separator="."):
     """
     Get a value from a dictionary like object contained in a suddocument.
-    
-    MongoDB support the concept of a subdocument.  To python a subdocument is 
-    a dictionary where the value attached to a key is itself a dictinary.  
-    MongoDB allows queries on subdocument values with composite keys of the 
-    form "base_doc_key.subdoc_key"  (e.g. "Parrival.time")  This small 
-    function allows extracting values from a document using such a 
-    composite key.  For the example above you could extract a previously 
+
+    MongoDB support the concept of a subdocument.  To python a subdocument is
+    a dictionary where the value attached to a key is itself a dictinary.
+    MongoDB allows queries on subdocument values with composite keys of the
+    form "base_doc_key.subdoc_key"  (e.g. "Parrival.time")  This small
+    function allows extracting values from a document using such a
+    composite key.  For the example above you could extract a previously
     computed and stored P arrival time using:
         Ptime = get_subdoc_value("Parrival.time")
-    Noting that if the same key were used with the [] operator of python 
-    it would fail.   
+    Noting that if the same key were used with the [] operator of python
+    it would fail.
 
-    
+
     :param doc:   document containing the data key references
-    :type doc:  dictionary like conainer.  That includes mspasspy Metadata 
+    :type doc:  dictionary like conainer.  That includes mspasspy Metadata
        and all MsPASS seismic objects that inherit Metadata.
-    :param key:  composite key describing path to data requested. 
+    :param key:  composite key describing path to data requested.
        (e.g.  "RF_snr.snr_H")
     :type key:   str
-    :param separator:  optional separator string used to define composite 
-      keys.   The content of this string is used as to define how the 
-      split method of str is applied to separate key into tokens.   The 
-      default is "." as used by MongoDB.  
+    :param separator:  optional separator string used to define composite
+      keys.   The content of this string is used as to define how the
+      split method of str is applied to separate key into tokens.   The
+      default is "." as used by MongoDB.
     :type separator:  str (default ".")
-    :return: object referenced by key - can be any object that can be stored 
-       in the doc container. 
+    :return: object referenced by key - can be any object that can be stored
+       in the doc container.
     """
     token = key.split(separator)
     N_last = len(token) - 1
@@ -807,25 +848,30 @@ def get_subdoc_value(doc,key,separator="."):
                 subdoc = last_doc[token[i]]
                 last_doc = subdoc
             else:
-                message = "get_subdoc_value:  subdocument for key {} at level {} created from composite key {} was not found in document being processed".format(token[i],i,key)
+                message = "get_subdoc_value:  subdocument for key {} at level {} created from composite key {} was not found in document being processed".format(
+                    token[i], i, key
+                )
                 raise KeyError(message)
         else:
             if token[i] in last_doc:
                 value_found = last_doc[token[i]]
             else:
-                message = "get_subdoc_value:  subdocument key={} of composite key {} was not found in this document".format(token[i],key)
+                message = "get_subdoc_value:  subdocument key={} of composite key {} was not found in this document".format(
+                    token[i], key
+                )
                 raise KeyError(message)
     return value_found
 
-def subdoc_key_is_defined(doc,key,separator=".")->bool:
+
+def subdoc_key_is_defined(doc, key, separator=".") -> bool:
     """
-    Companion to above to use to test if a compound key exists.   
+    Companion to above to use to test if a compound key exists.
     Needed for equivalent of common dictinary test "if key in doc".
-    
+
     :param doc:  document (dictinary/Metadata) to be checked.
     :param key:  key to validate
     :param separator:  component key separator (normally ".")
-    
+
     :return:  True if key is found, False otherwise.
     """
     token = key.split(separator)
@@ -843,9 +889,11 @@ def subdoc_key_is_defined(doc,key,separator=".")->bool:
                 return True
             else:
                 return False
-    
 
-def power_law_weight(x,x_lower,x_upper,w_lower,w_upper=1.0,x_is_log=False)->float:
+
+def power_law_weight(
+    x, x_lower, x_upper, w_lower, w_upper=1.0, x_is_log=False
+) -> float:
     """
     Compute a power law weight function defined by a lower and upper bound.
 
@@ -866,121 +914,129 @@ def power_law_weight(x,x_lower,x_upper,w_lower,w_upper=1.0,x_is_log=False)->floa
     :param x_is_log:   if True the values of x are assumed to be log10 values like
       earthquake magnitude.
     """
-    if x<=x_lower:
+    if x <= x_lower:
         return w_lower
-    elif x>=x_upper:
+    elif x >= x_upper:
         return w_upper
     if x_is_log:
-        lxlower=x_lower
-        lxupper=x_upper
+        lxlower = x_lower
+        lxupper = x_upper
         lx = x
     else:
-        lxlower=np.log10(x_lower)
-        lxupper=np.log10(x_upper)
+        lxlower = np.log10(x_lower)
+        lxupper = np.log10(x_upper)
         lx = np.log10(x)
-    lwlower=np.log10(w_lower)
-    lwupper=np.log10(w_upper)
-    slope = (lwupper-lwlower)/(lxupper-lxlower)
+    lwlower = np.log10(w_lower)
+    lwupper = np.log10(w_upper)
+    slope = (lwupper - lwlower) / (lxupper - lxlower)
     dlx = lx - lxlower
-    lw = lwlower + dlx*slope
-    return np.pow(10.0,lw)
+    lw = lwlower + dlx * slope
+    return np.pow(10.0, lw)
 
-def magnitude_weight(m,
-                     full_weight_magnitude=6.0,
-                     floor_magnitude=4.0,
-                     minimum_weight=0.01,
-                    ):
+
+def magnitude_weight(
+    m,
+    full_weight_magnitude=6.0,
+    floor_magnitude=4.0,
+    minimum_weight=0.01,
+):
     """
-    Return a weight function with 
+    Return a weight function with
       w = minimum_weight if m>=floor_magnitude
       w = 1.0 if m>=full_weight_magnitude
-      w = power law fit between upper and lower bounds.  
+      w = power law fit between upper and lower bounds.
     """
-    w = power_law_weight(m,
-                         floor_magnitude,
-                         full_weight_magnitude,
-                         minimum_weight,
-                         x_is_log=True,
-                        )
+    w = power_law_weight(
+        m,
+        floor_magnitude,
+        full_weight_magnitude,
+        minimum_weight,
+        x_is_log=True,
+    )
     return w
 
-def snr_weight(snr,
-               snr_floor=10.0,
-               weight_floor=0.01,
-               full_weight_snr=500.0,
-              ):
+
+def snr_weight(
+    snr,
+    snr_floor=10.0,
+    weight_floor=0.01,
+    full_weight_snr=500.0,
+):
     """
-    Compute a power law weighting function based on a snr estimate.  
+    Compute a power law weighting function based on a snr estimate.
 
     This function is thin wrapper on the power_law_weight function
-    with defaults appropriate for signal-to-noise estimates. 
+    with defaults appropriate for signal-to-noise estimates.
     """
-    w = power_law_weight(snr,snr_floor,full_weight_snr,weight_floor)
+    w = power_law_weight(snr, snr_floor, full_weight_snr, weight_floor)
     return w
 
-def set_snr_weights(ensemble,
-                    snr_metric_key,
-                    weight_key,
-                    snr_floor=10.0,
-                    weight_floor=0.01,
-                    full_weight_snr=500.0,
-                    )->SeismogramEnsemble:
+
+def set_snr_weights(
+    ensemble,
+    snr_metric_key,
+    weight_key,
+    snr_floor=10.0,
+    weight_floor=0.01,
+    full_weight_snr=500.0,
+) -> SeismogramEnsemble:
     """
-    Scan ensemble for values of a signal-to-noise ratio and convert 
-    them to a weight.   Result is stored in the Metadata container 
-    of each member with the key defined by `weight_key`.    
-    
-    Signal-to-noise ratio estimates are a basic tool for signal processing 
-    based methods to grade data by quality.   For any seismic processing 
-    algorithm handling transient signals (i.e. signals generated 
-    by an earthquake or explosion) snr is a way to a first-order way 
-    to judge the quality of what you are trying to analyze.  What metric 
-    to use, however, is dependent on the nature of the analysis being 
-    underaken.   e.g. peak amplitude relative to background noise is 
-    a critical metric if one is estimating standard magnitude estimators 
-    based on peak amplitude.   Other algorithms have a more elaboate 
-    metric.  There is a long list of measures created by the 
-    MsPASS function broadband_snr_QC that can be used with this function, 
-    
-    This function handles a complication of packaging of snr values.  
-    To manage the namespace MsPASS uses subdocuments to post snr estimates 
-    with different algorithms.  For that reason this functin supports 
-    using compound keys to find the snr value to be converted to a 
-    weight.  e.g. the recommended choice for snr estimated by 
-    CNRRFDecon is "snr_RF.snr_H" where"snr_RF" is a suddocument key 
-    and "snr_H" is the key for the dictionary that defines is 
-    loaded using "snr_RF"   
-    
-    The weight set is computed by the generic power lay weighting 
-    function, `power_law_weight` defined in this module.   See the 
-    docstring for that function and documentation for the functional 
-    for of this weighting method.  
-    
+    Scan ensemble for values of a signal-to-noise ratio and convert
+    them to a weight.   Result is stored in the Metadata container
+    of each member with the key defined by `weight_key`.
+
+    Signal-to-noise ratio estimates are a basic tool for signal processing
+    based methods to grade data by quality.   For any seismic processing
+    algorithm handling transient signals (i.e. signals generated
+    by an earthquake or explosion) snr is a way to a first-order way
+    to judge the quality of what you are trying to analyze.  What metric
+    to use, however, is dependent on the nature of the analysis being
+    underaken.   e.g. peak amplitude relative to background noise is
+    a critical metric if one is estimating standard magnitude estimators
+    based on peak amplitude.   Other algorithms have a more elaboate
+    metric.  There is a long list of measures created by the
+    MsPASS function broadband_snr_QC that can be used with this function,
+
+    This function handles a complication of packaging of snr values.
+    To manage the namespace MsPASS uses subdocuments to post snr estimates
+    with different algorithms.  For that reason this functin supports
+    using compound keys to find the snr value to be converted to a
+    weight.  e.g. the recommended choice for snr estimated by
+    CNRRFDecon is "snr_RF.snr_H" where"snr_RF" is a suddocument key
+    and "snr_H" is the key for the dictionary that defines is
+    loaded using "snr_RF"
+
+    The weight set is computed by the generic power lay weighting
+    function, `power_law_weight` defined in this module.   See the
+    docstring for that function and documentation for the functional
+    for of this weighting method.
+
     Note live datum with the specified key missing will be left unaltered.
-    
-    :param ensemble:   SeismogramEnsemble to be processed.  
-    :param snr_metric_key:  key of snr value to be extracted.  Can be a 
-      simple key or a compound key with a "." separator.   
-    :param weight_key:   key to use to store the computed weight in each 
+
+    :param ensemble:   SeismogramEnsemble to be processed.
+    :param snr_metric_key:  key of snr value to be extracted.  Can be a
+      simple key or a compound key with a "." separator.
+    :param weight_key:   key to use to store the computed weight in each
       ensemble member's Metadata container
-    :param snr_floor:   snr values smaller than this value will have 
+    :param snr_floor:   snr values smaller than this value will have
       weight set to value of weight_floor.  (default 0.01)
-    :param weight_floor:   companion to snr_floor.  snr values smaller than 
-      snr_floor will have the weight value set to this number 
+    :param weight_floor:   companion to snr_floor.  snr values smaller than
+      snr_floor will have the weight value set to this number
       (default 0.01).
-    :param full_weight_snr:  snr values larger than this value will have 
-      the weight set to 1.0.   
+    :param full_weight_snr:  snr values larger than this value will have
+      the weight set to 1.0.
     """
     if ensemble.dead():
         return ensemble
     for d in ensemble.member:
         if d.live:
-            if subdoc_key_is_defined(d,snr_metric_key):
+            if subdoc_key_is_defined(d, snr_metric_key):
                 snr = get_subdoc_value(d, snr_metric_key)
-                w = snr_weight(snr,snr_floor=snr_floor,
-                           weight_floor=weight_floor,
-                           full_weight_snr=full_weight_snr,
-                           )
+                w = snr_weight(
+                    snr,
+                    snr_floor=snr_floor,
+                    weight_floor=weight_floor,
+                    full_weight_snr=full_weight_snr,
+                )
                 d[weight_key] = w
     return ensemble
-

@@ -241,10 +241,10 @@ def normalize_by_solid_angle(imagevolume, cutoff) -> tuple:
     """
     image = imagevolume[:, :, :, 0:3].copy()
     omega = imagevolume[:, :, :, 3].copy()
-    # TODO:  something in pwmig is causing NaNs in output - we need to fix that 
+    # TODO:  something in pwmig is causing NaNs in output - we need to fix that
     # this is a workaround until that is resolved
     # debugging shows that if one of the 3 components is NaN they all are so use this construct
-    imgmask = np.isnan(image[:,:,:,0])
+    imgmask = np.isnan(image[:, :, :, 0])
     image = np.nan_to_num(image)
     # not component 4 of each data vector contains the sume of grt weights
     # they are applied to each 3c vector in the C++ PWMIGfielddata.accumulate
@@ -254,7 +254,7 @@ def normalize_by_solid_angle(imagevolume, cutoff) -> tuple:
     omega_inv = np.ma.masked_less(omega, cutoff)
     # combine with above mask - works as mask is a logical array
     combined_mask = omega_inv.mask | imgmask
-    omega_inv.mask = combined_mask    # if this works this should be shortened
+    omega_inv.mask = combined_mask  # if this works this should be shortened
     omega_inv = 1.0 / omega_inv  # safely computes 1/sum(omega) values
     # this returns a regular array with the masked values set to 0
     # helpful to assure null data cells are returned as zeros
@@ -269,7 +269,7 @@ def normalize_by_solid_angle(imagevolume, cutoff) -> tuple:
 
 def stack_data(imagelist, cutoff, clip_level, weights=None, verbose=False):
     """
-    Stacks data with optional weights in imagelist.  
+    Stacks data with optional weights in imagelist.
     """
     # if weights are used make sure it is the same length as imagelist
     if weights is not None:
@@ -289,91 +289,95 @@ def stack_data(imagelist, cutoff, clip_level, weights=None, verbose=False):
     sum_images = np.zeros(shape=[N1, N2, N3, 3])
     sumwts = np.zeros(shape=[N1, N2, N3])
     if verbose:
-        print("Image volume number of components=",N1*N2*N3*NV)
+        print("Image volume number of components=", N1 * N2 * N3 * NV)
     for i in range(len(imagelist)):
-        nancount=np.isnan(imagelist[i]).sum()
-        if verbose and nancount>0:
+        nancount = np.isnan(imagelist[i]).sum()
+        if verbose and nancount > 0:
             print(f"Image number {i} has {nancount} NaN values")
             for k in range(NV):
-                x=imagelist[i][:,:,:,k]
-                c=np.isnan(x).sum()
+                x = imagelist[i][:, :, :, k]
+                c = np.isnan(x).sum()
                 print(f"Number of NaNs in component {k}={c}")
         img, omega_inv = normalize_by_solid_angle(imagelist[i], cutoff)
         if verbose:
-            nmasked=omega_inv.mask.sum()
-            mask_fraction = nmasked/img.size
-            print(f"Fraction of image number {i} masked in nbormalize_by_solid_angle function={mask_fraction}")
-    
+            nmasked = omega_inv.mask.sum()
+            mask_fraction = nmasked / img.size
+            print(
+                f"Fraction of image number {i} masked in nbormalize_by_solid_angle function={mask_fraction}"
+            )
+
         # form a matrix of 1s where the data are valid and 0s where not
         # note normalize_by_solid angle already sets invalid values of
         # omega_inv to 0.   Here we only need to change all valid values
         # to 1 - very obscure syntax with the python not operator on the mask
-        wtmatrix=(~omega_inv.mask).astype(float)
+        wtmatrix = (~omega_inv.mask).astype(float)
         # simple way to apply a weight to all values is to scale wtmagtrix
         if weighted_stack:
             img *= weights[i]
             wtmatrix *= weights[i]
-        madlist=list()
+        madlist = list()
         madavg = 0.0
         for k in range(3):
             # make a regular array with NaNs in mask to allow computing mad correctly
-            dtmp = np.ma.masked_array(img[:,:,:,k],mask=omega_inv.mask)
+            dtmp = np.ma.masked_array(img[:, :, :, k], mask=omega_inv.mask)
             dtmp = dtmp.filled(np.nan)
             nancount = np.isnan(dtmp).sum()
-            dtmp=dtmp.flatten()
+            dtmp = dtmp.flatten()
             nancount = np.isnan(dtmp).sum()
             mad = scipy.stats.median_abs_deviation(dtmp, nan_policy="omit")
             madlist.append(mad)
             madavg += mad
         madavg /= 3.0
-        clip_value = clip_level*madavg
+        clip_value = clip_level * madavg
         if verbose:
             print(f"Clipping image {i} at level={clip_level}")
-        img = np.clip(img,-clip_value,clip_value)
+        img = np.clip(img, -clip_value, clip_value)
         sum_images += img
         sumwts += wtmatrix
     # normally testing for zero like this would be problematic but it
     # will not because invalid data are always created as sums of zeros
     # that always yield float zeros
     sumwt_masked = np.ma.masked_equal(sumwts, 0.0)
-    #nsmall=(sumwt_masked<0.1).sum()
+    # nsmall=(sumwt_masked<0.1).sum()
     for k in range(3):
-        # This construct is needed because the / operator on numpy 
-        # arrays ignores a mask.   The parenthesis exploit the fact the mask 
-        # is retained so when the filled method is applied to the result it 
-        # zeros all masked values defined by sumwt_masked in lhs  
-        sum_images[:,:,:,k] = (sum_images[:, :, :, k] / sumwt_masked).filled(0.0)
+        # This construct is needed because the / operator on numpy
+        # arrays ignores a mask.   The parenthesis exploit the fact the mask
+        # is retained so when the filled method is applied to the result it
+        # zeros all masked values defined by sumwt_masked in lhs
+        sum_images[:, :, :, k] = (sum_images[:, :, :, k] / sumwt_masked).filled(0.0)
     return sum_images, sumwt_masked
 
-def apply_mask(imagedata,masker,nullvalue=0.0):
+
+def apply_mask(imagedata, masker, nullvalue=0.0):
     """
-    Apply the mask defined in the 3 array sumwt to the components of the 
-    4d array imagedata.  i.e. the mask is applied in a loop over the last 
-    index of imagedata.   Masked valued are set to nullvalue using the 
+    Apply the mask defined in the 3 array sumwt to the components of the
+    4d array imagedata.  i.e. the mask is applied in a loop over the last
+    index of imagedata.   Masked valued are set to nullvalue using the
     filled method.  Returns imagegrid with masked values set to nullvalue.
     """
-    # could hard code this but this does this right 
-    [N1,N2,N3,NV] = imagedata.shape
+    # could hard code this but this does this right
+    [N1, N2, N3, NV] = imagedata.shape
     for k in range(NV):
-        d = np.ma.masked_array(imagedata[:,:,:,k],mask=masker.mask)
-        imagedata[:,:,:,k] = d.filled(nullvalue)
+        d = np.ma.masked_array(imagedata[:, :, :, k], mask=masker.mask)
+        imagedata[:, :, :, k] = d.filled(nullvalue)
     return imagedata
+
 
 def save_results(db, mastergrid, stack, sumwt, control, nametag_base, algorithm):
     """ """
     gclstack = GCLvectorfield3d(mastergrid, 3)
     gclstack.name = nametag_base + "_" + algorithm
-    stack = apply_mask(stack,sumwt)
-    # calling the filled method to zero undefined values.   
-    #TODO:  probably should save the mask. For now it could be extracted from 
-    # the weight array saved below if it is 
-    gclstack=load_numpy_data(gclstack,stack)
+    stack = apply_mask(stack, sumwt)
+    # calling the filled method to zero undefined values.
+    # TODO:  probably should save the mask. For now it could be extracted from
+    # the weight array saved below if it is
+    gclstack = load_numpy_data(gclstack, stack)
     GCLdbsave(db, gclstack, dir=control.dir)
     if control.save_weight_data:
         gclsumwt = GCLscalarfield3d(mastergrid)
-        # note since weights are alwasy >= 0 setting undefined values negative 
+        # note since weights are alwasy >= 0 setting undefined values negative
         # could be used to defined masked values.
-        # TODO:   not implemented.  Needs design for how to interact with 
+        # TODO:   not implemented.  Needs design for how to interact with
         # paraview
         gclsumwt = load_numpy_data(gclsumwt, sumwt.data.filled(-1.0))
         gclsumwt.name = nametag_base + "_sumwt_" + algorithm
@@ -486,7 +490,7 @@ def gridstacker(
             print("Loadig grid with name=", doc["name"])
         fdata = GCLdbread(db, doc)
         data_array = extract_data_array(fdata)
-        print("Largest value in array=",np.max(data_array))
+        print("Largest value in array=", np.max(data_array))
         if count == 0:
             mastergrid = GCLgrid3d(fdata)
         else:
@@ -516,18 +520,24 @@ def gridstacker(
             print("Computing stack with algorithm=", alg)
         match alg:
             case "average":
-                stack, sumwt = stack_data(arraylist, control.solid_angle_cutoff, control.clip_level)
+                stack, sumwt = stack_data(
+                    arraylist, control.solid_angle_cutoff, control.clip_level
+                )
             case "azimuth_weighting":
-                stack, sumwt = stack_data(arraylist, control.solid_angle_cutoff, control.clip_level, azwts)
+                stack, sumwt = stack_data(
+                    arraylist, control.solid_angle_cutoff, control.clip_level, azwts
+                )
             case "bin_weighting":
-                stack, sumwt = stack_data(arraylist, control.solid_angle_cutoff, control.clip_level, binwts)
+                stack, sumwt = stack_data(
+                    arraylist, control.solid_angle_cutoff, control.clip_level, binwts
+                )
             case _:
                 print("Unsupported key specified for method arg=", alg)
                 print("See docstring for allowed options")
                 print("Nonfatal - trying any remaining values for methods list")
                 continue
-        print("Finished stacking with method=",alg)
-        number_masked=sumwt.mask.sum()
-        masked_fraction = number_masked/stack.size
-        print("Fraction of cells set null=",masked_fraction)
+        print("Finished stacking with method=", alg)
+        number_masked = sumwt.mask.sum()
+        masked_fraction = number_masked / stack.size
+        print("Fraction of cells set null=", masked_fraction)
         save_results(db, mastergrid, stack, sumwt, control, output_base_name, alg)

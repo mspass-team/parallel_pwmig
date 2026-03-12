@@ -559,7 +559,9 @@ def _migrate_component_parallel(
     cursor.close()
     if monitor_memory:
         vm = psutil.virtual_memory()
-        ddist.print(f"Available worker memory = {vm.available / 1e9:.2f} GB after loading data with query={query}")
+        ddist.print(
+            f"Available worker memory = {vm.available / 1e9:.2f} GB after loading data with query={query}"
+        )
     t1 = time.time()
     pwdgrid = migrate_component(
         pwensemble, parent, TPfield, VPsvm, Us3d, Vp1d, Vs1d, control
