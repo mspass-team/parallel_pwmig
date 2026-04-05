@@ -670,7 +670,7 @@ def main(args=None):
     if parallel:
         dask_client = mspass_client.get_scheduler()
         print("Creating worker plugin")
-        dbplugin = MongoDBWorker(dbname)
+        dbplugin = MongoDBWorker(mspass_client)
         print("Running register_plugin")
         dask_client.register_plugin(dbplugin)
     # we always require site data to calculate travel times

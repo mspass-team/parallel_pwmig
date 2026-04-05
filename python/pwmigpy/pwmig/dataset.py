@@ -110,7 +110,7 @@ def pwmig_dataset(
     daskclient = mspass_client.get_scheduler()
     if initialize_workers:
         print("Creating worker plugin")
-        dbplugin = MongoDBWorker(dbname)
+        dbplugin = MongoDBWorker(mspass_client)
         print("Running register_plugin")
         daskclient.register_plugin(dbplugin)
     else:
@@ -288,7 +288,7 @@ def pwstack_dataset(
     if parallel:
         if initialize_workers:
             print("Creating worker plugin")
-            dbplugin = MongoDBWorker(dbname)
+            dbplugin = MongoDBWorker(mspass_client)
             print("Running register_plugin")
             daskclient.register_plugin(dbplugin)
         else:
