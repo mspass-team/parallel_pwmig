@@ -795,7 +795,7 @@ def pwstack(
             # debug
             # print(q['ix1'],q['ix2'],q['fold'])
             allqueries.append(q)
-        print("Debug:  query list=",allqueries)
+        print("Debug:  representative query list=",allqueries[0])
         if verbose:
             print("Number of ensembles to processed=", len(allqueries))
 
