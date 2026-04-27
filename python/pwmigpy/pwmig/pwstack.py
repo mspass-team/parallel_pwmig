@@ -356,7 +356,7 @@ def read_ensemble(
     data can be in either UTC or relative time.  If the data read are
     found to be in relative time this program assumes it has already been
     shifted to what I call the "arrival time reference" that normally means
-    t0 is the P arrival time which is the maximum of the spike in t                                    normalize=['source','site'],he
+    t0 is the P arrival time which is the maximum of the spike in the
     data at the arrival time.   If the data have a UTC time standard
     the function will attempt to extract a time from each member's
     metadata container with that key and then call the ator method of
@@ -561,6 +561,8 @@ def save_ensemble(
         ddist.print(
             f"save_ensemble:  pwstack produced no output for pwmig_source_id={pwsid}"
         )
+    else:
+        print("Debug: save_ensemble handling ensemble with size=",len(ens.member)," with live=",ens.live)
     db = fetch_dbhandle(dbname_or_handle)
     if storage_mode == "file":
         if outdir:
@@ -596,6 +598,8 @@ def pwstack_ensemble_python(
     save_history,
     algid,
 ):
+    print("Debug: entered pwstack_enemble_python")
+    print("Debug: ens.live=",ens.live," number members=",len(ens.member))
     return pwstack_ensemble(
         ens,
         slowness_grid,
@@ -791,6 +795,7 @@ def pwstack(
             # debug
             # print(q['ix1'],q['ix2'],q['fold'])
             allqueries.append(q)
+        print("Debug:  query list=",allqueries)
         if verbose:
             print("Number of ensembles to processed=", len(allqueries))
 
