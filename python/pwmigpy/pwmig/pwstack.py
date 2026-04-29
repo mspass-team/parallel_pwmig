@@ -695,10 +695,12 @@ def pwstack(
     # We make an assumption here that the array of source ids created
     # here is tiny and not a memory problem.  Unambiguously true when
     # source side stack was previously completed.
-    source_id_list = list()
-    for doc in base_cursor:
-        id = doc["_id"]
-        source_id_list.append(id)
+    source_id_list = list(base_cursor)
+    # shorthand for this loop
+    #source_id_list = list()
+    #for doc in base_cursor:
+    #    id = doc["_id"]
+    #    source_id_list.append(id)
     base_cursor.close()
     if restart:
         id2use = source_collection + "_id"
@@ -783,18 +785,26 @@ def pwstack(
                 print("Skipping data for this sid")
                 continue
         allqueries = list()
+        # debug
+        qcount=0
         for rids in staids:
             # build_wfquery returns a dict with lat, lon,
             # i, j, and a query string  That is a simple
             # construct so don't think it will be a bottleneck.
             # May have been better done with a dataframe
             # q=dask.delayed(build_wfquery)(sid,rids)
+            if qcount<50:
+                print("Debug:  data set to build_wfquery")
+                print("Debug:  rids="," sid=",sid," base_query=",base_query)
             q = build_wfquery(
                 sid, rids, source_collection=source_collection, base_query=wf_query
             )
+            if qcount<50:
+                print("Debug:   function output=",q)
             # debug
             # print(q['ix1'],q['ix2'],q['fold'])
             allqueries.append(q)
+            qcount += 1
         print("Debug:  representative query list=",allqueries[0])
         if verbose:
             print("Number of ensembles to processed=", len(allqueries))
