@@ -698,12 +698,10 @@ def pwstack(
     # We make an assumption here that the array of source ids created
     # here is tiny and not a memory problem.  Unambiguously true when
     # source side stack was previously completed.
-    source_id_list = list(base_cursor)
-    # shorthand for this loop
-    #source_id_list = list()
-    #for doc in base_cursor:
-    #    id = doc["_id"]
-    #    source_id_list.append(id)
+    source_id_list = list()
+    for doc in base_cursor:
+        id = doc["_id"]
+        source_id_list.append(id)
     base_cursor.close()
     if restart:
         id2use = source_collection + "_id"
