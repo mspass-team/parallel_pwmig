@@ -49,6 +49,9 @@ from pwmigpy.ccore.pwmigcore import (
 )
 from pwmigpy.db.database import GCLdbread
 
+#Debug only 
+from mspasspy.util.seismic import print_metadata
+
 
 def TopMuteFromPf(pf, tag):
     """
@@ -795,12 +798,14 @@ def pwstack(
             # q=dask.delayed(build_wfquery)(sid,rids)
             if qcount<50:
                 print("Debug:  data set to build_wfquery")
-                print("Debug:  rids="," sid=",sid," base_query=",base_query)
+                print_metadata(rids)
+                print("Debug:   sid=",sid," base_query=",base_query)
             q = build_wfquery(
                 sid, rids, source_collection=source_collection, base_query=wf_query
             )
             if qcount<50:
-                print("Debug:   function output=",q)
+                print("Debug:   function output")
+                print_metadata(q)
             # debug
             # print(q['ix1'],q['ix2'],q['fold'])
             allqueries.append(q)
