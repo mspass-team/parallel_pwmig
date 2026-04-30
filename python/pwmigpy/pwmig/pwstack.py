@@ -50,6 +50,7 @@ from pwmigpy.ccore.pwmigcore import (
 from pwmigpy.db.database import GCLdbread
 
 
+
 def TopMuteFromPf(pf, tag):
     """
     The C++ class TopMute does not have an AntelopePf driven constructor.
@@ -356,7 +357,7 @@ def read_ensemble(
     data can be in either UTC or relative time.  If the data read are
     found to be in relative time this program assumes it has already been
     shifted to what I call the "arrival time reference" that normally means
-    t0 is the P arrival time which is the maximum of the spike in t                                    normalize=['source','site'],he
+    t0 is the P arrival time which is the maximum of the spike in the
     data at the arrival time.   If the data have a UTC time standard
     the function will attempt to extract a time from each member's
     metadata container with that key and then call the ator method of
@@ -561,6 +562,7 @@ def save_ensemble(
         ddist.print(
             f"save_ensemble:  pwstack produced no output for pwmig_source_id={pwsid}"
         )
+
     db = fetch_dbhandle(dbname_or_handle)
     if storage_mode == "file":
         if outdir:
@@ -571,6 +573,9 @@ def save_ensemble(
         # fetching error if this key is not defined.  Not user
         # friendly but appropriate since it is a bug if that happens
         dfile = str(ens["pwmig_source_id"]) + ".dat"
+    else:
+        odir=None
+        dfile=None
     sdret = db.save_data(
         ens,
         collection="wf_Seismogram",
@@ -783,13 +788,9 @@ def pwstack(
             # build_wfquery returns a dict with lat, lon,
             # i, j, and a query string  That is a simple
             # construct so don't think it will be a bottleneck.
-            # May have been better done with a dataframe
-            # q=dask.delayed(build_wfquery)(sid,rids)
             q = build_wfquery(
                 sid, rids, source_collection=source_collection, base_query=wf_query
             )
-            # debug
-            # print(q['ix1'],q['ix2'],q['fold'])
             allqueries.append(q)
         if verbose:
             print("Number of ensembles to processed=", len(allqueries))
