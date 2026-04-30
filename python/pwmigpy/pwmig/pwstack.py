@@ -49,8 +49,6 @@ from pwmigpy.ccore.pwmigcore import (
 )
 from pwmigpy.db.database import GCLdbread
 
-#Debug only 
-from mspasspy.util.seismic import print_metadata
 
 
 def TopMuteFromPf(pf, tag):
@@ -564,8 +562,7 @@ def save_ensemble(
         ddist.print(
             f"save_ensemble:  pwstack produced no output for pwmig_source_id={pwsid}"
         )
-    else:
-        print("Debug: save_ensemble handling ensemble with size=",len(ens.member)," with live=",ens.live)
+
     db = fetch_dbhandle(dbname_or_handle)
     if storage_mode == "file":
         if outdir:
@@ -604,8 +601,6 @@ def pwstack_ensemble_python(
     save_history,
     algid,
 ):
-    print("Debug: entered pwstack_enemble_python")
-    print("Debug: ens.live=",ens.live," number members=",len(ens.member))
     return pwstack_ensemble(
         ens,
         slowness_grid,
@@ -789,29 +784,14 @@ def pwstack(
                 print("Skipping data for this sid")
                 continue
         allqueries = list()
-        # debug
-        qcount=0
         for rids in staids:
             # build_wfquery returns a dict with lat, lon,
             # i, j, and a query string  That is a simple
             # construct so don't think it will be a bottleneck.
-            # May have been better done with a dataframe
-            # q=dask.delayed(build_wfquery)(sid,rids)
-            if qcount<50:
-                print("Debug:  data set to build_wfquery")
-                print_metadata(rids)
-                print("Debug:   sid=",sid," base_query=",base_query)
             q = build_wfquery(
                 sid, rids, source_collection=source_collection, base_query=wf_query
             )
-            if qcount<50:
-                print("Debug:   function output")
-                print_metadata(q)
-            # debug
-            # print(q['ix1'],q['ix2'],q['fold'])
             allqueries.append(q)
-            qcount += 1
-        print("Debug:  representative query list=",allqueries[0])
         if verbose:
             print("Number of ensembles to processed=", len(allqueries))
 
