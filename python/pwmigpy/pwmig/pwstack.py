@@ -576,6 +576,9 @@ def save_ensemble(
         # fetching error if this key is not defined.  Not user
         # friendly but appropriate since it is a bug if that happens
         dfile = str(ens["pwmig_source_id"]) + ".dat"
+    else:
+        odir=None
+        dfile=None
     sdret = db.save_data(
         ens,
         collection="wf_Seismogram",
