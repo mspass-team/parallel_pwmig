@@ -1243,7 +1243,10 @@ def migrate_event(
         query = dict()
     else:
         query = copy.deepcopy(base_query)
-    key = source_collection + "_id"
+    if source_collection == "telecluster":
+        key = "telecluster_id"
+    else:
+        key = "pwmig_source_id"
     query[key] = sid
     n_total_this_sid = db.wf_Seismogram.count_documents(query)
     if n_total_this_sid <= minimum_data:
