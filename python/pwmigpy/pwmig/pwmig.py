@@ -1133,7 +1133,12 @@ def migrate_event(
         with a size of several seconds you have this problem and results
         will be meaningless. This issue will never happen unless the pf
         has the parameter "use_3d_velocity_model" set true.
-
+        
+        
+    TODO:   this function needs an optional agrument to allow 3d 
+    model to be passed via a arg instead of being loaded using the 
+    database.  That would improve performance when run in a loop over
+    many events
     """
     # This first set of parameters were passed as args in earlier
     # implementations of this function.   Changed Jan 26 to simplify
@@ -1239,12 +1244,15 @@ def migrate_event(
         )
         print("These data will be ignored: returning a Null result")
         return None
+    elif verbose:
+        print(f"number of plane wave Seismogram objects for sid={sid} is {n_total_this_sid}")
     gridid_list = db.wf_Seismogram.find(query).distinct("gridid")
     # exit after printing memory estimates if dryrun is enabled
-    wmem = worker_memory_estimator(db, sid, pf, source_collection)
-    if dryrun:
+    if monitor_memory or dryrun:
+        wmem = worker_memory_estimator(db, sid, pf, source_collection)
         wmem.report()
-        exit(1)
+        if dryrun:
+            exit(1)
     # Freeze use of source collection for source_id consistent with MsPASS
     # default schema.
     doc = db[source_collection].find_one({"_id": sid})
@@ -1291,7 +1299,7 @@ def migrate_event(
     # new parameters are added changes are required in this function
     control = _build_control_metadata(pf)
     if verbose:
-        print("Successfully built internal control structure for pf input")
+        print("Successfully built internal control structure from pf input")
 
     # This builds the image volume used to accumulate plane wave
     # components.   We assume it was constructed earlier and saved
@@ -1332,9 +1340,9 @@ def migrate_event(
     # dux=pf.get_double("slowness_grid_deltau")
     dt = pf.get_double("data_sample_interval")
     zdecfac = pf.get_long("Incident_TTgrid_zdecfac")
-
+    use3d = control["use_3d_velocity_model"]
     [Vp1d, Vs1d, Up3d, Us3d] = load_velocity_models(
-        db, pf, load_3d_models=control["use_3d_velocity_model"]
+        db, pf, use3d,
     )
 
     # Now bring in the grid geometry.  First the 2d surface of pseudostation points
@@ -1352,11 +1360,9 @@ def migrate_event(
     svm0 = BuildSlownessGrid(
         parent, source_lat, source_lon, source_depth, verbose=verbose
     )
-    print("Debug:  finished computing svm0")
-    use3d = control["use_3d_velocity_model"]
-    print(
-        f"{parent.n1=} {parent.n2=} {border_pad=} {tmax=} {zmax=} {zpad=} {dt=} {tmax=} {zdecfac=} {use3d=}"
-    )
+    if verbose:
+        print("Finsihed computing slowness vector grid.  Elapsed time=",time.time()-t0)
+
     TPfield = ComputeIncidentWaveRaygrid(
         parent,
         border_pad,
@@ -1369,6 +1375,7 @@ def migrate_event(
         zdecfac,
         control["use_3d_velocity_model"],
     )
+    # this can be deleted now
     del Up3d
     if verbose:
         print("Time to create incident wave travel time grid=", time.time() - t0)
