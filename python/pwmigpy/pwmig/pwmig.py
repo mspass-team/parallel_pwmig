@@ -1283,9 +1283,9 @@ def migrate_event(
         source_lon = subdoc["lon"]
         source_depth = subdoc["depth"]
     elif source_collection == "source":
-        source_lat = doc["pwmig_source_lat"]
-        source_lon = doc["pwmig_source_lon"]
-        source_depth = doc["pwmig_source_depth"]
+        source_lat = doc["lat"]
+        source_lon = doc["lon"]
+        source_depth = doc["depth"]
     else:
         message = "migrate_event:   illegal value received with source_collection={}\n".format(
             source_collection
