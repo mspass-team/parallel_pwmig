@@ -54,15 +54,15 @@ class gridstacker_control:
 
     def __init__(self, pf_or_pfname="gridstacker.pf"):
         """
-        Class constructor.   As the name implies pf_or_pfname can be 
-        either an instance of an AntelopePf object or the string 
-        defining a path to a pf file.  If it is a string the function 
-        will attempt to create an AntelopePf object from that string 
-        assuing it is a file name.  If that fails it will throw a 
-        MsPASSError exception  
-        
-        Will throw a ValueError if pf_or_pfname is anything but 
-        an AntelopePf or string (Warning:  a pathlib object should be 
+        Class constructor.   As the name implies pf_or_pfname can be
+        either an instance of an AntelopePf object or the string
+        defining a path to a pf file.  If it is a string the function
+        will attempt to create an AntelopePf object from that string
+        assuing it is a file name.  If that fails it will throw a
+        MsPASSError exception
+
+        Will throw a ValueError if pf_or_pfname is anything but
+        an AntelopePf or string (Warning:  a pathlib object should be
         converted to a string if used to create a file name.)
         """
         if isinstance(pf_or_pfname, str):
@@ -129,7 +129,7 @@ def _azimuth_of_cells(db, iaz):
 
 def report_counts(db):
     """
-    Internal function created only to make caller more readable.  
+    Internal function created only to make caller more readable.
     Prints a standard report for the azimuth_weighting method.
     """
     azindlist = db.telecluster.distinct("gridcell.azimuth_index")
@@ -148,27 +148,27 @@ def report_counts(db):
 def source_cell_weights(db, tcidlist, power=0.5, floor=0.05) -> np.ndarray:
     """
     Computes weight values for the "bin_weighting" method of gridstacker.
-    
-    Returns a vector of weights with the index defined by the counts of 
-    events in the "telecluster" database collection.   The index of the 
-    vector returned is parallel with input list `tcidlist.   i.e. 
-    if w is the vector returned, w[i] is the weight computed for 
-    data from the telecluster id defined by tcidlist[i].  
-    See the User Manual for the rational and form of the power 
+
+    Returns a vector of weights with the index defined by the counts of
+    events in the "telecluster" database collection.   The index of the
+    vector returned is parallel with input list `tcidlist.   i.e.
+    if w is the vector returned, w[i] is the weight computed for
+    data from the telecluster id defined by tcidlist[i].
+    See the User Manual for the rational and form of the power
     law weighting function used to define the weights.
-    
+
     :param db:  Database object containing the telecluster table to be scanned
-    :param tcidlist:  vector of ObjectId valumes that are the ids of 
-      the telecluster associated with each migrated image.   These ids 
-      are used to get the number of events defined by telecluster in 
-      each telecluster cell.   The weights are computed with a power 
+    :param tcidlist:  vector of ObjectId valumes that are the ids of
+      the telecluster associated with each migrated image.   These ids
+      are used to get the number of events defined by telecluster in
+      each telecluster cell.   The weights are computed with a power
       law function using those weight.
     :param power:  power coefficient of weighting function (see User Manual)
       Default is 0.5 with is optimal for Gaussian random errors in data.
     :param floor:  floor coefficient of weighting function (see User Manual)
-      Computed eights smaller than this fraction of the maximum will be 
-      set to this lower bound value.  i.e. no relative weight will fall 
-      below this value.   Shoud always be a number less than 1.   
+      Computed eights smaller than this fraction of the maximum will be
+      set to this lower bound value.  i.e. no relative weight will fall
+      below this value.   Shoud always be a number less than 1.
       Default is 0.05.
     """
     # this could be slow but telecluster is always small and this
@@ -206,29 +206,29 @@ def source_cell_weights(db, tcidlist, power=0.5, floor=0.05) -> np.ndarray:
 def azimuth_weights(db, tcidlist, power=0.5, floor=0.05) -> np.ndarray:
     """
     This function computes azimuthal weights used for the "azimuth_weighting"
-    method.   
-    
-    Returns a vector of weights with the index defined by the counts of 
-    events in the "telecluster" database collection.   The index of the 
-    vector returned is parallel with input list `tcidlist.   i.e. 
-    if w is the vector returned, w[i] is the weight computed for 
-    data from the telecluster id defined by tcidlist[i].  
-    Duplicate weights are thus set for events within the same 
-    range of incident wave directions. See the User Manual 
-    for the rational and the form of the power law weighting function 
+    method.
+
+    Returns a vector of weights with the index defined by the counts of
+    events in the "telecluster" database collection.   The index of the
+    vector returned is parallel with input list `tcidlist.   i.e.
+    if w is the vector returned, w[i] is the weight computed for
+    data from the telecluster id defined by tcidlist[i].
+    Duplicate weights are thus set for events within the same
+    range of incident wave directions. See the User Manual
+    for the rational and the form of the power law weighting function
     the function implements.
-    
+
     :param db:  Database object containing the telecluster table to be scanned
-    :param tcidlist:  vector of ObjectId valumes that are the ids of 
-      the telecluster associated with each migrated image.   These ids 
-      are used to get the azimuth index of each migrated image to set the 
+    :param tcidlist:  vector of ObjectId valumes that are the ids of
+      the telecluster associated with each migrated image.   These ids
+      are used to get the azimuth index of each migrated image to set the
       correct weight value for each output.
     :param power:  power coefficient of weighting function (see User Manual)
       Default is 0.5 with is optimal for Gaussian random errors in data.
     :param floor:  floor coefficient of weighting function (see User Manual)
-      Computed eights smaller than this fraction of the maximum will be 
-      set to this lower bound value.  i.e. no relative weight will fall 
-      below this value.   Shoud always be a number less than 1.   
+      Computed eights smaller than this fraction of the maximum will be
+      set to this lower bound value.  i.e. no relative weight will fall
+      below this value.   Shoud always be a number less than 1.
       Default is 0.05.
     """
     azindlist = db.telecluster.distinct("gridcell.azimuth_index")
@@ -339,25 +339,25 @@ def normalize_by_solid_angle(imagevolume, cutoff) -> tuple:
 def stack_data(imagelist, cutoff, clip_level, weights=None, verbose=False):
     """
     Stacks data with optional weights in imagelist.
-    
-    Generic algorithm used by all current methods implemented in 
-    gridstacker.  All current methods are some weighted average. 
-    (Note a "average" uses weights of 1 for all inputs).   
-    
-    :param imagelist:  list of 4d numpy arrays extracted from GCLVectorField3d 
-       objects that are to be stacked. 
-    :param cutoff:   solid_angle_cutoff value from parameter file used to 
-       excude data from edges.  See User Manual for details.  
-    :param clip_level:  relative clip level aookued to remove unreasonable 
-      values of all input grids.  Level is relative to the MAD of 
-      all samples in each input grid.   
-    :param weights:   vector of floating point numbers assumed to be 
-      the same length as that of len(imagelist).  imagegrid[i] is 
-      multiplied by weight[i] for weighted stacks.  If None, which is 
-      the default, assume all weights are 1.  i.e. None is used for 
+
+    Generic algorithm used by all current methods implemented in
+    gridstacker.  All current methods are some weighted average.
+    (Note a "average" uses weights of 1 for all inputs).
+
+    :param imagelist:  list of 4d numpy arrays extracted from GCLVectorField3d
+       objects that are to be stacked.
+    :param cutoff:   solid_angle_cutoff value from parameter file used to
+       excude data from edges.  See User Manual for details.
+    :param clip_level:  relative clip level aookued to remove unreasonable
+      values of all input grids.  Level is relative to the MAD of
+      all samples in each input grid.
+    :param weights:   vector of floating point numbers assumed to be
+      the same length as that of len(imagelist).  imagegrid[i] is
+      multiplied by weight[i] for weighted stacks.  If None, which is
+      the default, assume all weights are 1.  i.e. None is used for
       a normal average.
     :param verbose:  boolean that when True (default is False) causes
-      some potentially useful diagnostic messages to be printed. 
+      some potentially useful diagnostic messages to be printed.
     """
     # if weights are used make sure it is the same length as imagelist
     if weights is not None:
@@ -452,44 +452,44 @@ def apply_mask(imagedata, masker, nullvalue=0.0):
 
 
 def save_results(db, mastergrid, stack, sumwt, control, nametag_base, algorithm):
-    """ 
-    Save function used internally by gridstacker function. 
-    
-    Saving data from this application s complicated by the fact that 
-    normal use expects multiple runs with different parameters.   
-    Furtherore, diffrent methods need unique tags to sort that result 
+    """
+    Save function used internally by gridstacker function.
+
+    Saving data from this application s complicated by the fact that
+    normal use expects multiple runs with different parameters.
+    Furtherore, diffrent methods need unique tags to sort that result
     from other "methods".   That is handled by setting the grid "name"
-    to the value of the nametag_base + "_" + the value of algorithm.  
-    e.g.for the "average" algorithm if nametag_base is "mydata" the 
-    grid name attribute will be set to "mydata_average".  Change the 
-    nametag_base value for different runs to avoid confusion about 
-    what is what.  The database will distinguish them by adding a unique 
-    ObjectId string for each saved document.   
-    
-    If the control structure attribute `save_weight_data` 
-    (defined in parameter file) is set True the 3d array of 
-    weights will be aved with the tag "_sumewt" inserted in the 
-    name attribute.  The weight array is useful to visuallize 
-    potential coverage artifacts created by events with incomplete 
-    receiver coverage. 
-    
+    to the value of the nametag_base + "_" + the value of algorithm.
+    e.g.for the "average" algorithm if nametag_base is "mydata" the
+    grid name attribute will be set to "mydata_average".  Change the
+    nametag_base value for different runs to avoid confusion about
+    what is what.  The database will distinguish them by adding a unique
+    ObjectId string for each saved document.
+
+    If the control structure attribute `save_weight_data`
+    (defined in parameter file) is set True the 3d array of
+    weights will be aved with the tag "_sumewt" inserted in the
+    name attribute.  The weight array is useful to visuallize
+    potential coverage artifacts created by events with incomplete
+    receiver coverage.
+
     :param db:   instance of MsPASS Database to save data.
     :param mastergrid: 3d template grid used to construct the stack output.
     :param stack:  4d stack computed by algorithm defined by alorithm argument
-    :param sumwt:   sum of weights 3d array.  This is assumed to be a 
-      numpy masked array with the mask set for grid points with no data. 
-      Tha mask is transferred stack to guaranteed undefined data are set 
-      to zeros.  
-    :param control:  special control structure created from AntelopePf.   
-       i.e. it is an instance of a gridstacker_control object defined 
-       in this module  
-    :param nametag_base:  base string used to create unique name tags 
+    :param sumwt:   sum of weights 3d array.  This is assumed to be a
+      numpy masked array with the mask set for grid points with no data.
+      Tha mask is transferred stack to guaranteed undefined data are set
+      to zeros.
+    :param control:  special control structure created from AntelopePf.
+       i.e. it is an instance of a gridstacker_control object defined
+       in this module
+    :param nametag_base:  base string used to create unique name tags
       (see above for details)
-    :param algorithm: name of the algorithm that created the stack to 
-      be saved.  The name is not tested for consistency with the 
-      options supported by gridstacker because the function is 
-      expected to be used only for internal use when called from 
-      gridstacker.  
+    :param algorithm: name of the algorithm that created the stack to
+      be saved.  The name is not tested for consistency with the
+      options supported by gridstacker because the function is
+      expected to be used only for internal use when called from
+      gridstacker.
     """
     gclstack = GCLvectorfield3d(mastergrid, 3)
     gclstack.name = nametag_base + "_" + algorithm
@@ -533,15 +533,15 @@ def gridstacker(
         2. The "azimuth_weighting" aims to reduce illumination artifacts from
            unbalanced inputs a limited azimuth range.   It is similar in
            concept to the approach used in the original papers on pwmig
-           by Poppeliers and Pavlis.  It also can be viewed as a 
-           giving higher weight to azimuths with larger numbers of 
+           by Poppeliers and Pavlis.  It also can be viewed as a
+           giving higher weight to azimuths with larger numbers of
            events.   See the User Manual for more details.
-        3. The "bin_weighting" algorithm adds more granularity to 
-           the weighting.   It should be thought of as a pure signal-to-noise 
+        3. The "bin_weighting" algorithm adds more granularity to
+           the weighting.   It should be thought of as a pure signal-to-noise
            weighting method where each image in the stack is scaled by a
-           power law loss function scaled by the number of events in each 
-           telecluster grid cell.   The default is sqrt(N) weighting 
-           that is theoretically correct for Gaussian noise.  
+           power law loss function scaled by the number of events in each
+           telecluster grid cell.   The default is sqrt(N) weighting
+           that is theoretically correct for Gaussian noise.
     All method except "average" should be treated as experimental.
     All the published work to date other than that in the original
     Poppeliers and Pavlis paper used the equivalent of "average".
@@ -556,8 +556,8 @@ def gridstacker(
     That is done with one important implementation detail.   That is,
     experience from previous work showed it was important to not include
     image cells that had limited viewing angles meaning cells where the
-    total solid angle was below a threshold.  That limit is set 
-    with the parameter file.  See the User Manual for details. 
+    total solid angle was below a threshold.  That limit is set
+    with the parameter file.  See the User Manual for details.
 
     This function currently is not set up to run in parallel but attempts to
     load all image volumes it is to stack into memory.   With current generation
@@ -572,8 +572,8 @@ def gridstacker(
       work if you pass this as a MongoDB command cursor (output of find).
       The list is tiny compared to size of any expected image volume so
       use of a list instead of cursor is wise to reduce the chances of
-      a cursor timeout.  A list is preferred to a cursor as the function 
-      may hold the cursor unnecessarily tying up a MongoDB server connection. 
+      a cursor timeout.  A list is preferred to a cursor as the function
+      may hold the cursor unnecessarily tying up a MongoDB server connection.
     :param dbname_or_handle: instance of mspasspy.db.Database with
       pwmig data stored in the GCLfield collection.   Note this function
       is currently serial so we use the regular client.
@@ -648,16 +648,16 @@ def gridstacker(
                 report_counts(db)
                 print("azimuth_index weight")
                 for i in range(len(azwts)):
-                    print(i,azwts[i])
+                    print(i, azwts[i])
         if "bin_weighting" in methods:
             binwts = source_cell_weights(
                 db, xref, control.binwt_power, control.binwt_floor
             )
             if verbose:
-                i=0
+                i = 0
                 print("telecluster_id weight")
                 for tcid in xref:  # xref is a dict keyed by telecluster_id
-                    print(tcid,binwts[i])
+                    print(tcid, binwts[i])
                     i += 1
     for alg in methods:
         if verbose:
