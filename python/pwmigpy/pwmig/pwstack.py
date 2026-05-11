@@ -50,7 +50,6 @@ from pwmigpy.ccore.pwmigcore import (
 from pwmigpy.db.database import GCLdbread
 
 
-
 def TopMuteFromPf(pf, tag):
     """
     The C++ class TopMute does not have an AntelopePf driven constructor.
@@ -574,8 +573,8 @@ def save_ensemble(
         # friendly but appropriate since it is a bug if that happens
         dfile = str(ens["pwmig_source_id"]) + ".dat"
     else:
-        odir=None
-        dfile=None
+        odir = None
+        dfile = None
     sdret = db.save_data(
         ens,
         collection="wf_Seismogram",
